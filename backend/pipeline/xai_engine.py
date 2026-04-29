@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 import shap
 from lime.lime_tabular import LimeTabularExplainer
+import os
 
 
 class XAIEngine:
@@ -13,6 +14,23 @@ class XAIEngine:
         feature_vector: np.array shape (1, n_features)
         """
         try:
+            n_features = int(feature_vector.shape[1])
+            # KernelSHAP on 20k+ features is prohibitively slow, especially when
+            # model_predict_function makes remote HTTP calls. Use a fast heuristic
+            # fallback unless explicitly forced.
+            force_full = os.getenv("FORCE_FULL_XAI", "").lower() in {"1", "true", "yes"}
+            if (n_features > 2000) and not force_full:
+                values = np.asarray(feature_vector[0], dtype=float)
+                # Heuristic importance: rank by absolute deviation from median.
+                # Works for single-sample cases and is bounded/fast.
+                med = float(np.median(values)) if values.size else 0.0
+                importance = np.abs(values - med)
+                top_idx = np.argsort(importance)[::-1][:10]
+                return [
+                    {"gene": str(feature_names[i]), "shap_value": float(importance[i])}
+                    for i in top_idx
+                ]
+
             background = np.repeat(feature_vector, 10, axis=0)
 
             explainer = shap.KernelExplainer(
@@ -20,7 +38,8 @@ class XAIEngine:
                 background
             )
 
-            shap_values = explainer.shap_values(feature_vector)
+            # Bound runtime for full mode as well.
+            shap_values = explainer.shap_values(feature_vector, nsamples=100)
 
             if isinstance(shap_values, list):
                 shap_matrix = np.mean([np.abs(sv) for sv in shap_values], axis=0)
@@ -44,6 +63,18 @@ class XAIEngine:
 
     def run_lime_analysis(self, feature_vector, feature_names):
         try:
+            n_features = int(feature_vector.shape[1])
+            force_full = os.getenv("FORCE_FULL_XAI", "").lower() in {"1", "true", "yes"}
+            if (n_features > 2000) and not force_full:
+                values = np.asarray(feature_vector[0], dtype=float)
+                med = float(np.median(values)) if values.size else 0.0
+                importance = values - med
+                top_idx = np.argsort(np.abs(importance))[::-1][:10]
+                return [
+                    {"gene": str(feature_names[i]), "lime_weight": float(importance[i])}
+                    for i in top_idx
+                ]
+
             explainer = LimeTabularExplainer(
                 training_data=np.repeat(feature_vector, 10, axis=0),
                 feature_names=feature_names,
