@@ -1,7 +1,7 @@
 import { Check, Loader2 } from 'lucide-react';
 import { PIPELINE_STEPS } from '../types';
 
-type StepStatus = 'pending' | 'running' | 'complete';
+type StepStatus = 'pending' | 'running' | 'complete' | 'error';
 
 interface PipelineProgressProps {
   currentStep: number;
@@ -9,8 +9,12 @@ interface PipelineProgressProps {
 }
 
 function getStepStatus(stepIndex: number, currentStep: number, overallStatus: string): StepStatus {
-  if (overallStatus === 'complete' || stepIndex < currentStep) return 'complete';
-  if (stepIndex === currentStep && overallStatus === 'running') return 'running';
+  // Backend sends 1-based step numbers (1..7). UI uses 0-based indices.
+  const stepNumber = stepIndex + 1;
+
+  if (overallStatus === 'complete' || stepNumber < currentStep) return 'complete';
+  if (overallStatus === 'error' && stepNumber === currentStep) return 'error';
+  if (stepNumber === currentStep && overallStatus === 'running') return 'running';
   return 'pending';
 }
 
@@ -18,18 +22,21 @@ const stepColors = {
   pending: 'border-gray-700 bg-gray-800/50 text-gray-500',
   running: 'border-blue-500 bg-blue-500/10 text-blue-400',
   complete: 'border-emerald-500 bg-emerald-500/10 text-emerald-400',
+  error: 'border-red-500 bg-red-500/10 text-red-400',
 };
 
 const labelColors = {
   pending: 'text-gray-500',
   running: 'text-blue-400',
   complete: 'text-emerald-400',
+  error: 'text-red-400',
 };
 
 const connectorColors = {
   pending: 'bg-gray-800',
   running: 'bg-gray-800',
   complete: 'bg-emerald-500/40',
+  error: 'bg-red-500/30',
 };
 
 export default function PipelineProgress({ currentStep, status }: PipelineProgressProps) {

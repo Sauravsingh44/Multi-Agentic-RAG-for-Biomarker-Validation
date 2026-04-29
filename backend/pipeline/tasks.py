@@ -31,14 +31,109 @@ def run_full_pipeline(analysis_id, csv_data):
         analysis.current_step_number = 1
         analysis.save()
 
-        df = pd.read_csv(io.StringIO(csv_data))
+        def _preprocess_rna_seq_like_model(df_matrix: pd.DataFrame):
+            """
+            Match the user's preprocessing:
+            - drop rows with any NaN
+            - transpose
+            - ensure 2D output
 
-        patient_id = df.iloc[0]["PatientID"]
-        feature_names = list(df.columns[1:])
-        feature_vector = df.iloc[:, 1:].values.astype(float)
+            Expects df_matrix with:
+            - rows = genes/features
+            - columns = samples (typically 1 column for a single patient)
+            """
+            df_clean = df_matrix.dropna(axis=0, how="any")
+            df_transposed = df_clean.transpose()
 
-        analysis.patient_id = patient_id
-        analysis.save()
+            input_vector = df_transposed.values
+            if input_vector.ndim == 1:
+                input_vector = input_vector.reshape(1, -1)
+
+            return input_vector, df_clean.index.tolist()
+
+        def _parse_patient_csv(raw_csv: str):
+            """
+            Build a gene-by-sample matrix, then apply preprocessing above.
+
+            Supported layouts:
+            1) Long format (20518 x 2): gene, expression
+            2) Wide format: one row with many gene columns (optionally multiple rows -> first row)
+            """
+            df_local = pd.read_csv(io.StringIO(raw_csv), sep=None, engine="python")
+            if df_local is None or df_local.empty:
+                raise Exception("Uploaded CSV is empty.")
+
+            # Normalize column names for matching.
+            columns_local = list(df_local.columns)
+            lowered = {str(c).strip().lower(): c for c in columns_local}
+
+            patient_id_col_candidates = ["patientid", "patient_id", "patient", "patient id"]
+            patient_id_col = next((lowered.get(k) for k in patient_id_col_candidates if k in lowered), None)
+
+            patient_id_value_local = None
+            if patient_id_col:
+                v = df_local.iloc[0][patient_id_col]
+                if pd.notna(v) and str(v).strip():
+                    patient_id_value_local = str(v).strip()
+
+            # Remove patient id column from parsing if present.
+            df_no_pid = df_local.drop(columns=[patient_id_col]) if patient_id_col else df_local
+
+            # --- Case A: long format gene/expression pairs (e.g. 20518 x 2)
+            if df_no_pid.shape[1] == 2 and df_no_pid.shape[0] >= 1000:
+                c1, c2 = list(df_no_pid.columns)
+                n1 = pd.to_numeric(df_no_pid[c1], errors="coerce")
+                n2 = pd.to_numeric(df_no_pid[c2], errors="coerce")
+                n1_ratio = float(n1.notna().mean())
+                n2_ratio = float(n2.notna().mean())
+
+                if (n1_ratio < 0.5 and n2_ratio >= 0.9) or (n2_ratio < 0.5 and n1_ratio >= 0.9):
+                    gene_col = c1 if n1_ratio < n2_ratio else c2
+                    expr_col = c2 if gene_col == c1 else c1
+
+                    genes = df_no_pid[gene_col].astype(str).str.strip()
+                    expr = pd.to_numeric(df_no_pid[expr_col], errors="coerce")
+
+                    # Build gene-by-sample matrix with genes as index, one sample column.
+                    matrix = pd.DataFrame({"expr": expr.values}, index=genes.values)
+                    # Drop empty / nan gene names
+                    matrix = matrix[~matrix.index.astype(str).str.strip().isin(["", "nan", "None"])]
+                    matrix.index = matrix.index.astype(str)
+
+                    input_vector, gene_list = _preprocess_rna_seq_like_model(matrix)
+
+                    # Model expects exactly 20518 features.
+                    if input_vector.shape[1] != 20518:
+                        raise Exception(
+                            f"Expected 20518 gene expression values but got {input_vector.shape[1]}. "
+                            "Ensure your CSV contains exactly 20518 (gene, expression) rows with numeric expression values."
+                        )
+
+                    return patient_id_value_local, gene_list, input_vector
+
+            # --- Case B: wide format (gene columns)
+            # Use the first row as the patient sample, coerce to numeric, then transpose to genes-as-rows.
+            wide_first_row = df_no_pid.iloc[[0]].copy()
+            wide_first_row = wide_first_row.apply(pd.to_numeric, errors="coerce")
+            wide_first_row = wide_first_row.dropna(axis=1, how="all")
+
+            if wide_first_row.empty:
+                raise Exception(
+                    "CSV parsing failed: could not find numeric expression data. "
+                    "Expected either (gene, expression) pairs or a wide numeric feature row."
+                )
+
+            gene_by_sample = wide_first_row.transpose()
+            gene_by_sample.index = gene_by_sample.index.astype(str)
+
+            input_vector, gene_list = _preprocess_rna_seq_like_model(gene_by_sample)
+            return patient_id_value_local, gene_list, input_vector
+
+        patient_id_value, feature_names, feature_vector = _parse_patient_csv(csv_data)
+
+        if patient_id_value:
+            analysis.patient_id = patient_id_value
+            analysis.save(update_fields=["patient_id"])
 
         # =========================
         # STEP 2: ML Prediction
