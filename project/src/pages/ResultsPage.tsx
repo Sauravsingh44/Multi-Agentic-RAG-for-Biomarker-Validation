@@ -18,7 +18,7 @@ function usePollPipeline(id: string) {
     const interval = setInterval(async () => {
       try {
         const res = await api.status(id);
-        if (res.status === 'complete') {
+        if (res.status === 'complete' || res.status === 'error') {
           clearInterval(interval);
         }
         setCurrentStep(res.current_step_number || 0);
@@ -44,24 +44,40 @@ export default function ResultsPage() {
   useEffect(() => {
     if (!id) return;
 
+    let cancelled = false;
+    let interval: number | undefined;
+
     const poll = async () => {
       try {
         const res = await api.status(id);
+        if (cancelled) return;
+
         setAnalysis(res.analysis as Analysis | null);
+
+        if (res.status === 'error') {
+          if (interval) window.clearInterval(interval);
+          return;
+        }
+
         if (res.status === 'complete') {
           const fullRes = await api.results(id);
+          if (cancelled) return;
           setAnalysis(fullRes as unknown as Analysis);
+          if (interval) window.clearInterval(interval);
         }
       } catch {
         // ignore
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     };
 
     poll();
-    const interval = setInterval(poll, 3000);
-    return () => clearInterval(interval);
+    interval = window.setInterval(poll, 3000);
+    return () => {
+      cancelled = true;
+      if (interval) window.clearInterval(interval);
+    };
   }, [id]);
 
   if (loading) {
@@ -90,6 +106,7 @@ export default function ResultsPage() {
   const currentStep = analysis.status === 'complete' ? 7 : simStep;
   const currentStatus = analysis.status === 'complete' ? 'complete' : simStatus;
   const isComplete = currentStatus === 'complete';
+  const isError = currentStatus === 'error';
   const results = analysis?.results ?? null;
 
   return (
@@ -111,6 +128,11 @@ export default function ResultsPage() {
             <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-medium">
               <CheckCircle2 size={12} />
               Analysis Complete
+            </span>
+          ) : isError ? (
+            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-red-500/10 border border-red-500/20 text-red-400 text-xs font-medium">
+              <AlertCircle size={12} />
+              Pipeline Failed
             </span>
           ) : (
             <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-400 text-xs font-medium">
@@ -189,8 +211,26 @@ export default function ResultsPage() {
         </section>
       )}
 
+      {/* Error state */}
+      {isError && (
+        <div className="rounded-2xl border border-red-500/20 bg-red-500/5 p-10">
+          <div className="flex items-start gap-3">
+            <AlertCircle className="text-red-400 mt-0.5" size={18} />
+            <div>
+              <p className="text-gray-200 font-semibold">Pipeline failed</p>
+              <p className="text-gray-500 text-sm mt-1">
+                {(analysis as unknown as { error_message?: string })?.error_message || 'Unknown error.'}
+              </p>
+              <p className="text-gray-600 text-xs mt-3">
+                If you’re stuck on “Classify Subtype”, it usually means the remote subtype model is slow/unreachable. Try again in a minute, or run the backend with network access.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Waiting state */}
-      {!isComplete && !results && (
+      {!isComplete && !isError && !results && (
         <div className="rounded-2xl border border-gray-800 bg-gray-900/40 p-12 text-center">
           <div className="w-12 h-12 border-2 border-cyan-400/30 border-t-cyan-400 rounded-full animate-spin mx-auto mb-4" />
           <p className="text-gray-400 font-medium">Pipeline is processing...</p>
