@@ -72,5 +72,11 @@ export const api = {
     if (!res.ok) throw new Error('Recent fetch failed');
     const data = await res.json();
     return data.map((item: Record<string, unknown>) => normalizeAnalysisPayload(item));
-  }
+  },
+
+  async clearRecent(): Promise<{ deleted: number }> {
+    const res = await fetch(`${API_BASE}/pipeline/analyses/clear/`, { method: 'DELETE' });
+    if (!res.ok) throw new Error('Clear analyses failed');
+    return await res.json();
+  },
 };

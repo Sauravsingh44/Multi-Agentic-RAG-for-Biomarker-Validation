@@ -7,25 +7,22 @@ from typing import TypedDict, Annotated, List
 from django.conf import settings
 
 from langchain_groq import ChatGroq
-from langchain_huggingface import HuggingFaceEmbeddings
 from langgraph.graph import StateGraph, END
 
 
 # =========================
 # LLM + Embeddings
 # =========================
-llm = ChatGroq(
-    api_key=settings.GROQ_API_KEY,
-    model="llama-3.1-8b-instant",
-    temperature=0.1,
-    max_tokens=1024
-)
+def _get_llm():
+    # Create lazily so env/.env changes take effect after restart
+    return ChatGroq(
+        api_key=settings.GROQ_API_KEY or os.getenv("GROQ_API_KEY"),
+        model="llama-3.1-8b-instant",
+        temperature=0.1,
+        max_tokens=1024
+    )
 
-embeddings = HuggingFaceEmbeddings(
-    model_name="pritamdeka/S-PubMedBert-MS-MARCO"
-)
-
-API_DELAY = 0.5
+API_DELAY = float(os.getenv("RAG_API_DELAY", "0.1"))
 
 
 # =========================
@@ -88,7 +85,7 @@ def fetch_ebi_protein(gene):
     headers = {"Accept": "application/json"}
 
     try:
-        res = requests.get(url, headers=headers)
+        res = requests.get(url, headers=headers, timeout=10)
         if res.status_code == 200:
             return res.json()
     except:
@@ -150,28 +147,28 @@ class AgentState(TypedDict):
 # =========================
 def gene_agent(state):
     prompt = f"Analyze the biological role of gene {state['gene']} in lung cancer."
-    result = llm.invoke(prompt)
+    result = _get_llm().invoke(prompt)
     state["gene_report"] = result.content
     return state
 
 
 def pathway_agent(state):
     prompt = f"Explain pathways involving gene {state['gene']} in cancer."
-    result = llm.invoke(prompt)
+    result = _get_llm().invoke(prompt)
     state["pathway_report"] = result.content
     return state
 
 
 def drug_agent(state):
     prompt = f"Analyze therapeutic drugs targeting {state['gene']}: {state['drug_candidates']}"
-    result = llm.invoke(prompt)
+    result = _get_llm().invoke(prompt)
     state["drug_report"] = result.content
     return state
 
 
 def literature_agent(state):
     prompt = f"Summarize literature evidence for gene {state['gene']} in lung cancer."
-    result = llm.invoke(prompt)
+    result = _get_llm().invoke(prompt)
     state["literature_report"] = result.content
     return state
 
@@ -192,7 +189,7 @@ def aggregator_agent(state):
     Literature report:
     {state['literature_report']}
     """
-    result = llm.invoke(prompt)
+    result = _get_llm().invoke(prompt)
     state["final_report"] = result.content
     return state
 

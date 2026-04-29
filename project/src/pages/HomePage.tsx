@@ -23,6 +23,7 @@ export default function HomePage() {
   // const [patientId, setPatientId] = useState('');
   const [loading, setLoading] = useState(false);
   const [recentLoading, setRecentLoading] = useState(true);
+  const [clearing, setClearing] = useState(false);
   const [recentAnalyses, setRecentAnalyses] = useState<Array<{
     id: string;
     patient_id: string;
@@ -31,45 +32,43 @@ export default function HomePage() {
     created_at: string;
   }>>([]);
 
+  const loadRecent = async () => {
+    try {
+      const data = await api.recent();
+      setRecentAnalyses(
+        data.map((item) => ({
+          id: String(item.id || ''),
+          patient_id: String(item.patient_id || 'N/A'),
+          predicted_subtype: (item.predicted_subtype as string | null) || null,
+          status: String(item.status || 'pending'),
+          created_at: String(item.created_at || new Date().toISOString()),
+        }))
+      );
+    } catch (err) {
+      console.error(err);
+      setRecentAnalyses([]);
+    }
+  };
+
   const handleFile = (f: File) => {
     setFile(f);
   };
 
   const handleAnalyze = async () => {
     if (!file) return;
-    setLoading(true);
-    try {
-      const { analysis_id } = await api.analyze(file);
-      navigate(`/results/${analysis_id}`);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
+    // Navigate immediately to show progress UI; upload happens in ResultsPage.
+    navigate('/results/creating', { state: { file } });
   };
 
   useEffect(() => {
-    const loadRecent = async () => {
+    const run = async () => {
       try {
-        const data = await api.recent();
-        setRecentAnalyses(
-          data.map((item) => ({
-            id: String(item.id || ''),
-            patient_id: String(item.patient_id || 'N/A'),
-            predicted_subtype: (item.predicted_subtype as string | null) || null,
-            status: String(item.status || 'pending'),
-            created_at: String(item.created_at || new Date().toISOString()),
-          }))
-        );
-      } catch (err) {
-        console.error(err);
-        setRecentAnalyses([]);
+        await loadRecent();
       } finally {
         setRecentLoading(false);
       }
     };
-
-    loadRecent();
+    run();
   }, []);
 
   return (
@@ -141,7 +140,33 @@ export default function HomePage() {
       <section>
         <div className="flex items-center justify-between mb-5">
           <h2 className="text-lg font-semibold text-gray-200">Recent Analyses</h2>
-          <span className="text-xs text-gray-600">{recentLoading ? 'Loading...' : `${recentAnalyses.length} records`}</span>
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-gray-600">{recentLoading ? 'Loading...' : `${recentAnalyses.length} records`}</span>
+            <button
+              onClick={async () => {
+                if (recentAnalyses.length === 0 || clearing) return;
+                const ok = window.confirm('Clear all recent analyses? This will delete records from the database.');
+                if (!ok) return;
+                setClearing(true);
+                try {
+                  await api.clearRecent();
+                  await loadRecent();
+                } catch (err) {
+                  console.error(err);
+                } finally {
+                  setClearing(false);
+                }
+              }}
+              disabled={recentAnalyses.length === 0 || recentLoading || clearing}
+              className={`text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors ${
+                recentAnalyses.length === 0 || recentLoading || clearing
+                  ? 'bg-gray-900/40 text-gray-600 border-gray-800 cursor-not-allowed'
+                  : 'bg-red-500/10 text-red-300 border-red-500/20 hover:bg-red-500/15'
+              }`}
+            >
+              {clearing ? 'Clearing…' : 'Clear'}
+            </button>
+          </div>
         </div>
 
         <div className="rounded-2xl border border-gray-700/60 bg-gray-900/60 backdrop-blur-sm overflow-hidden">

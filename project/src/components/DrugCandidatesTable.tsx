@@ -14,13 +14,6 @@ const GENE_COLORS: Record<string, string> = {
   TP53: 'bg-red-500/10 text-red-400 border-red-500/20',
 };
 
-const phaseColors: Record<string, string> = {
-  'FDA Approved': 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
-  'Phase III': 'bg-blue-500/10 text-blue-400 border-blue-500/20',
-  'Phase II': 'bg-amber-500/10 text-amber-400 border-amber-500/20',
-  'Phase I': 'bg-orange-500/10 text-orange-400 border-orange-500/20',
-};
-
 export default function DrugCandidatesTable({ drugs }: DrugCandidatesTableProps) {
   const grouped = drugs.reduce<Record<string, DrugCandidate[]>>((acc, d) => {
     (acc[d.gene] = acc[d.gene] || []).push(d);
@@ -40,7 +33,6 @@ export default function DrugCandidatesTable({ drugs }: DrugCandidatesTableProps)
               <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Gene</th>
               <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Drug</th>
               <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Mechanism</th>
-              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Phase</th>
               <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">ChEMBL</th>
             </tr>
           </thead>
@@ -58,11 +50,6 @@ export default function DrugCandidatesTable({ drugs }: DrugCandidatesTableProps)
                   </td>
                   <td className="px-6 py-3.5 text-sm font-medium text-gray-200">{drug.drug}</td>
                   <td className="px-6 py-3.5 text-sm text-gray-400">{drug.mechanism}</td>
-                  <td className="px-6 py-3.5">
-                    <span className={`text-xs px-2 py-0.5 rounded-full border font-medium ${phaseColors[drug.phase] || 'bg-gray-800 text-gray-400 border-gray-700'}`}>
-                      {drug.phase}
-                    </span>
-                  </td>
                   <td className="px-6 py-3.5">
                     <a
                       href={`https://www.ebi.ac.uk/chembl/compound_report_card/${drug.chemblId}`}

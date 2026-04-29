@@ -3,6 +3,8 @@ import numpy as np
 import pandas as pd
 from celery import shared_task
 from django.utils import timezone
+import os
+import concurrent.futures
 
 from .models import (
     PatientAnalysis,
@@ -242,8 +244,16 @@ def run_full_pipeline(analysis_id, csv_data):
 
         reports = []
 
-        for item in mapped_results[:5]:
+        rag_top_n = int(os.getenv("RAG_TOP_GENES", "2"))
+        rag_timeout_s = int(os.getenv("RAG_GENE_TIMEOUT_S", "90"))
+
+        rag_items = mapped_results[:rag_top_n]
+
+        for idx, item in enumerate(rag_items, start=1):
             gene = item["gene_symbol"]
+
+            analysis.current_step = f"Running Multi-Agentic RAG ({idx}/{len(rag_items)}): {gene}"
+            analysis.save(update_fields=["current_step"])
 
             drugs_for_gene = [
                 d.get("drug_name")
@@ -252,11 +262,16 @@ def run_full_pipeline(analysis_id, csv_data):
 
             try:
                 from .langgraph_pipeline import run_langgraph_pipeline
-                final_report = run_langgraph_pipeline(
-                    gene=gene,
-                    shap_score=item["shap_value"],
-                    drug_candidates=drugs_for_gene
-                )
+
+                # Run with a hard timeout so a single stuck network/LLM call doesn't hang the pipeline.
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+                    fut = ex.submit(
+                        run_langgraph_pipeline,
+                        gene=gene,
+                        shap_score=item["shap_value"],
+                        drug_candidates=drugs_for_gene,
+                    )
+                    final_report = fut.result(timeout=rag_timeout_s)
             except Exception as rag_exc:
                 final_report = (
                     f"RAG report unavailable for {gene}: {rag_exc}. "
