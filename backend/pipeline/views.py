@@ -54,6 +54,12 @@ def list_analyses(request):
     serializer = PatientAnalysisSerializer(analyses, many=True)
     return Response(serializer.data)
 
+@api_view(['DELETE'])
+def clear_analyses(request):
+    # Deletes all analyses; related rows are removed via FK cascade.
+    deleted, _ = PatientAnalysis.objects.all().delete()
+    return Response({"deleted": deleted})
+
 @api_view(['GET'])
 def analysis_results(request, analysis_id):
     try:
