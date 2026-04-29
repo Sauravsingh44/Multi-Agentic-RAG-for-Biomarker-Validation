@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { Activity, AlertCircle, CheckCircle2 } from 'lucide-react';
 import PipelineProgress from '../components/PipelineProgress';
 import SubtypeCard from '../components/SubtypeCard';
@@ -15,6 +15,12 @@ function usePollPipeline(id: string) {
   const [status, setStatus] = useState('running');
 
   useEffect(() => {
+    if (!id || !id.trim()) {
+      setCurrentStep(0);
+      setStatus('running');
+      return;
+    }
+
     const interval = setInterval(async () => {
       try {
         const res = await api.status(id);
@@ -36,13 +42,20 @@ function usePollPipeline(id: string) {
 
 export default function ResultsPage() {
   const { id } = useParams<{ id: string }>();
+  const location = useLocation();
+  const navigate = useNavigate();
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
   const [loading, setLoading] = useState(true);
+  const [createError, setCreateError] = useState<string | null>(null);
 
-  const { currentStep: simStep, status: simStatus } = usePollPipeline(id ?? '');
+  const isCreating = id === 'creating';
+  const creatingFile = (location.state as { file?: File } | null)?.file;
+
+  const { currentStep: simStep, status: simStatus } = usePollPipeline(!isCreating ? (id ?? '') : '');
 
   useEffect(() => {
     if (!id) return;
+    if (isCreating) return;
 
     let cancelled = false;
     let interval: number | undefined;
@@ -80,13 +93,71 @@ export default function ResultsPage() {
     };
   }, [id]);
 
+  useEffect(() => {
+    if (!isCreating) return;
+    if (!creatingFile) {
+      setCreateError('No file provided. Please go back and upload a CSV.');
+      setLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+
+    const run = async () => {
+      try {
+        const { analysis_id } = await api.analyze(creatingFile);
+        if (cancelled) return;
+        navigate(`/results/${analysis_id}`, { replace: true });
+      } catch (e) {
+        if (cancelled) return;
+        setCreateError(e instanceof Error ? e.message : 'Upload failed');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+
+    run();
+    return () => {
+      cancelled = true;
+    };
+  }, [creatingFile, isCreating, navigate]);
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-32">
         <div className="flex flex-col items-center gap-4">
           <div className="w-10 h-10 border-2 border-cyan-400 border-t-transparent rounded-full animate-spin" />
-          <p className="text-gray-500 text-sm">Loading analysis...</p>
+          <p className="text-gray-500 text-sm">{isCreating ? 'Uploading CSV and creating analysis...' : 'Loading analysis...'}</p>
         </div>
+      </div>
+    );
+  }
+
+  if (isCreating) {
+    if (createError) {
+      return (
+        <div className="flex items-center justify-center py-32">
+          <div className="flex flex-col items-center gap-3 text-center max-w-lg">
+            <AlertCircle size={40} className="text-red-400" />
+            <p className="text-gray-200 font-semibold">Could not start analysis</p>
+            <p className="text-gray-500 text-sm">{createError}</p>
+            <button
+              onClick={() => navigate('/')}
+              className="mt-4 text-sm font-semibold px-4 py-2 rounded-xl border border-gray-700 bg-gray-900/40 text-gray-200 hover:bg-gray-900/70 transition-colors"
+            >
+              Back to Home
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    // In normal flow, we should have navigated to /results/{id} once created.
+    return (
+      <div className="rounded-2xl border border-gray-800 bg-gray-900/40 p-12 text-center">
+        <div className="w-12 h-12 border-2 border-cyan-400/30 border-t-cyan-400 rounded-full animate-spin mx-auto mb-4" />
+        <p className="text-gray-200 font-semibold">Creating analysis…</p>
+        <p className="text-gray-600 text-sm mt-1">Uploading your CSV and starting the pipeline</p>
       </div>
     );
   }
