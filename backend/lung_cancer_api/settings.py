@@ -96,6 +96,8 @@ CHANNEL_LAYERS = {
 CELERY_BROKER_URL = 'redis://localhost:6379/0'
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
 HUGGINGFACE_REPO_ID = os.getenv("HUGGINGFACE_REPO_ID")
 LUNG_CLASSIFIER_FALLBACK = os.getenv("LUNG_CLASSIFIER_FALLBACK", "")
 

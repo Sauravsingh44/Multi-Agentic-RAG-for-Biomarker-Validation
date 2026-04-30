@@ -248,6 +248,13 @@ def run_full_pipeline(analysis_id, csv_data):
         rag_timeout_s = int(os.getenv("RAG_GENE_TIMEOUT_S", "90"))
 
         rag_items = mapped_results[:rag_top_n]
+        top_genes_for_rag = [x["gene_symbol"] for x in rag_items]
+        top_drugs_for_rag = list({
+            d.get("drug_name")
+            for gene_name in top_genes_for_rag
+            for d in drug_candidates.get(gene_name, [])
+            if d.get("drug_name")
+        })
 
         for idx, item in enumerate(rag_items, start=1):
             gene = item["gene_symbol"]
@@ -270,24 +277,46 @@ def run_full_pipeline(analysis_id, csv_data):
                         gene=gene,
                         shap_score=item["shap_value"],
                         drug_candidates=drugs_for_gene,
+                        top_genes=top_genes_for_rag,
+                        top_drugs=top_drugs_for_rag,
                     )
-                    final_report = fut.result(timeout=rag_timeout_s)
+                    rag_output = fut.result(timeout=rag_timeout_s)
+                    final_report = rag_output.get("final_report", "")
+                    sections = rag_output.get("sections", [])
             except Exception as rag_exc:
+                rag_err_text = str(rag_exc).strip() or rag_exc.__class__.__name__
+                rag_err = rag_err_text.lower()
+                if "decommissioned" in rag_err or "model_decommissioned" in rag_err:
+                    rag_hint = "Configured Groq model is decommissioned; switch RAG_MODEL_* to active Groq models."
+                elif "rate limit" in rag_err or "429" in rag_err or "tokens per minute" in rag_err:
+                    rag_hint = "Groq rate limit may be hit; reduce RAG_TOP_GENES or increase retry delay."
+                elif "timeout" in rag_err:
+                    rag_hint = "RAG timeout reached; increase RAG_GENE_TIMEOUT_S or reduce per-gene agent workload."
+                else:
+                    rag_hint = "Check GROQ_API_KEY and RAG_MODEL_* configuration."
                 final_report = (
-                    f"RAG report unavailable for {gene}: {rag_exc}. "
-                    "Set GROQ_API_KEY to enable multi-agent reports."
+                    f"RAG report unavailable for {gene}: {rag_err_text}. "
+                    f"{rag_hint}"
                 )
+                sections = [
+                    {"title": "Gene Agent", "content": final_report},
+                    {"title": "Pathway Agent", "content": final_report},
+                    {"title": "Drug Agent", "content": final_report},
+                    {"title": "Literature Agent", "content": final_report},
+                    {"title": "Aggregator Agent", "content": final_report},
+                ]
 
             AgentReport.objects.create(
                 analysis=analysis,
                 gene_symbol=gene,
-                agent_name="aggregator",
-                report_text=final_report
+                agent_name="multi_agentic_rag",
+                report_text=final_report,
+                sections=sections
             )
 
             reports.append({
                 "gene": gene,
-                "report": final_report
+                "sections": sections
             })
 
         # =========================
@@ -325,12 +354,15 @@ def run_full_pipeline(analysis_id, csv_data):
                 "chemblId": dc.chembl_id
             })
 
-        agent_reports = []
-        for agent in AgentReport.objects.filter(analysis=analysis):
-            agent_reports.append({
-                "gene": agent.gene_symbol,
-                "sections": [{"title": agent.agent_name, "content": agent.report_text}]
-            })
+        agent_reports = reports
+        aggregator_summaries = []
+        for report in reports:
+            gene_name = report.get("gene", "")
+            sections = report.get("sections", [])
+            agg_section = next((s for s in sections if s.get("title") == "Aggregator Agent"), None)
+            if agg_section and agg_section.get("content"):
+                aggregator_summaries.append(f"{gene_name}\n{agg_section.get('content')}")
+        combined_aggregator_summary = "\n\n".join(aggregator_summaries) if aggregator_summaries else "No aggregator summary available."
 
         subtype_scores = [
             {"name": analysis.predicted_subtype, "value": float(getattr(analysis, f'{analysis.predicted_subtype.lower()}confidence', 92.4))},
@@ -349,7 +381,7 @@ def run_full_pipeline(analysis_id, csv_data):
                 "subtype": analysis.predicted_subtype,
                 "topGenes": top_genes[:5] if 'top_genes' in locals() else [],
                 "topDrugs": list(set([d.drug_name for d in DrugCandidate.objects.filter(analysis=analysis)[:5]])),
-                "clinicalRecommendations": ["Consult oncologist.", "Real data now flows!"]
+                "aggregatorSummary": combined_aggregator_summary
             }
         }
 
@@ -364,7 +396,7 @@ def run_full_pipeline(analysis_id, csv_data):
             summary_text=summary_text,
             top_genes=top_genes[:5] if 'top_genes' in locals() else [],
             top_drugs=dict(drug_candidates) if 'drug_candidates' in locals() else {},
-            clinical_recommendations="Consult oncologist for further validation."
+            clinical_recommendations=combined_aggregator_summary
         )
 
         return {
