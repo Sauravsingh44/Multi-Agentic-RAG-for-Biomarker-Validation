@@ -12,6 +12,7 @@ const SECTION_ICONS: Record<string, React.ReactNode> = {
   'Drug Agent': <Pill size={14} />,
   'Literature Agent': <BookOpen size={14} />,
   'Aggregator': <Layers size={14} />,
+  'Aggregator Agent': <Layers size={14} />,
 };
 
 const SECTION_COLORS: Record<string, string> = {
@@ -20,6 +21,7 @@ const SECTION_COLORS: Record<string, string> = {
   'Drug Agent': 'text-amber-400',
   'Literature Agent': 'text-blue-400',
   'Aggregator': 'text-pink-400',
+  'Aggregator Agent': 'text-pink-400',
 };
 
 function GeneCard({ report }: { report: GeneAgentReport }) {

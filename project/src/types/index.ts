@@ -40,7 +40,7 @@ export interface AnalysisResults {
     subtype: Subtype;
     topGenes: string[];
     topDrugs: string[];
-    clinicalRecommendations: string[];
+    aggregatorSummary: string;
   };
 }
 
