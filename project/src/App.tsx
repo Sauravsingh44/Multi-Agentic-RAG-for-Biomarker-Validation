@@ -9,6 +9,7 @@ export default function App() {
       <Layout>
         <Routes>
           <Route path="/" element={<HomePage />} />
+          <Route path="/results/creating" element={<ResultsPage />} />
           <Route path="/results/:id" element={<ResultsPage />} />
         </Routes>
       </Layout>

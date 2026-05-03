@@ -21,7 +21,7 @@ from .drug_engine import DrugRepurposingEngine
 
 
 @shared_task
-def run_full_pipeline(analysis_id, csv_data):
+def run_full_pipeline(analysis_id, csv_data, classifier_type="lung"):
     try:
         analysis = PatientAnalysis.objects.get(id=analysis_id)
 
@@ -104,11 +104,11 @@ def run_full_pipeline(analysis_id, csv_data):
 
                     input_vector, gene_list = _preprocess_rna_seq_like_model(matrix)
 
-                    # Model expects exactly 20518 features.
-                    if input_vector.shape[1] != 20518:
+                    expected_feature_count = 20518 if classifier_type == "lung" else 17379
+                    if input_vector.shape[1] != expected_feature_count:
                         raise Exception(
-                            f"Expected 20518 gene expression values but got {input_vector.shape[1]}. "
-                            "Ensure your CSV contains exactly 20518 (gene, expression) rows with numeric expression values."
+                            f"Expected {expected_feature_count} gene expression values but got {input_vector.shape[1]}. "
+                            "Ensure your CSV contains the required number of (gene, expression) rows with numeric expression values."
                         )
 
                     return patient_id_value_local, gene_list, input_vector
@@ -145,16 +145,15 @@ def run_full_pipeline(analysis_id, csv_data):
         analysis.save()
 
         classifier = MLClassifier()
-        prediction = classifier.predict_lung_subtype(feature_vector.flatten().tolist())
+        features = feature_vector.flatten().tolist()
+        if classifier_type == "colorectal":
+            prediction = classifier.predict_colorectal_subtype(features)
+        else:
+            prediction = classifier.predict_lung_subtype(features)
 
         analysis.predicted_subtype = prediction["predicted_subtype"]
-
-        if prediction["predicted_subtype"] == "LUAD":
-            analysis.luad_confidence = prediction["confidence"]
-            analysis.lusc_confidence = 100 - prediction["confidence"]
-        else:
-            analysis.lusc_confidence = prediction["confidence"]
-            analysis.luad_confidence = 100 - prediction["confidence"]
+        analysis.luad_confidence = prediction["confidence"]
+        analysis.lusc_confidence = 100 - prediction["confidence"]
 
         analysis.save()
 
@@ -167,6 +166,8 @@ def run_full_pipeline(analysis_id, csv_data):
 
         classifier = MLClassifier()
         def real_predict(features):
+            if classifier_type == "colorectal":
+                return classifier.predict_colorectal_subtype(features)['confidence']
             return classifier.predict_lung_subtype(features)['confidence']
 
         xai_engine = XAIEngine(lambda x: np.array([[real_predict(row.tolist())] for row in x]))
@@ -364,14 +365,20 @@ def run_full_pipeline(analysis_id, csv_data):
                 aggregator_summaries.append(f"{gene_name}\n{agg_section.get('content')}")
         combined_aggregator_summary = "\n\n".join(aggregator_summaries) if aggregator_summaries else "No aggregator summary available."
 
-        subtype_scores = [
-            {"name": analysis.predicted_subtype, "value": float(getattr(analysis, f'{analysis.predicted_subtype.lower()}confidence', 92.4))},
-            {"name": "LUSC" if analysis.predicted_subtype == "LUAD" else "LUAD", "value": float(getattr(analysis, f'l{analysis.predicted_subtype.lower()}confidence', 7.6))}
-        ]
+        if classifier_type == "colorectal":
+            subtype_scores = [
+                {"name": "Colon Adenocarcinoma", "value": float(prediction["confidence"]) if analysis.predicted_subtype == "Colon Adenocarcinoma" else float(100 - prediction["confidence"])},
+                {"name": "Rectal Adenocarcinoma", "value": float(prediction["confidence"]) if analysis.predicted_subtype == "Rectal Adenocarcinoma" else float(100 - prediction["confidence"])},
+            ]
+        else:
+            subtype_scores = [
+                {"name": "LUAD", "value": float(prediction["confidence"]) if analysis.predicted_subtype == "LUAD" else float(100 - prediction["confidence"])},
+                {"name": "LUSC", "value": float(prediction["confidence"]) if analysis.predicted_subtype == "LUSC" else float(100 - prediction["confidence"])},
+            ]
 
         results_data = {
             "subtype": analysis.predicted_subtype,
-            "confidence": float(getattr(analysis, f'{analysis.predicted_subtype.lower()}confidence', 0.924)),
+            "confidence": float(prediction["confidence"]),
             "subtypeScores": subtype_scores,
             "driverGenes": driver_genes,
             "drugCandidates": drug_candidates_list,

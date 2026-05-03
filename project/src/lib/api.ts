@@ -35,9 +35,10 @@ function normalizeAnalysisPayload(payload: Record<string, unknown>) {
 }
 
 export const api = {
-  async analyze(file: File): Promise<{analysis_id: string}> {
+  async analyze(file: File, classifierType: 'lung' | 'colorectal' = 'lung'): Promise<{analysis_id: string}> {
     const formData = new FormData();
     formData.append('file', file);
+    formData.append('classifier_type', classifierType);
     
     const res = await fetch(`${API_BASE}/pipeline/analyze/`, {
       method: 'POST',

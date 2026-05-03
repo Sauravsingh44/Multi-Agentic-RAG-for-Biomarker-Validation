@@ -5,6 +5,7 @@ import time
 class MLClassifier:
     def __init__(self):
         self.lung_url="https://rishabh108272-lung-cancer-subtype.hf.space/predict"
+        self.colorectal_url = "https://saurav554-colorectal-cancer-subtype.hf.space/predict"
     
     def predict_lung_subtype(self, features):
         try:
@@ -54,4 +55,59 @@ class MLClassifier:
                 return {"predicted_subtype": label, "confidence": 50.0, "probability": 0.5}
 
             raise Exception(f"Lung Prediction failed:{str(e)}")
+
+    def predict_colorectal_subtype(self, features):
+        try:
+            # Model expects 17379 scaled features.
+            if len(features) != 17379:
+                raise ValueError(
+                    f"Colorectal model expects 17379 features, got {len(features)}."
+                )
+
+            last_exc = None
+            for attempt in range(3):
+                try:
+                    response = requests.post(
+                        self.colorectal_url,
+                        json={"features": features},
+                        timeout=(10, 60),
+                    )
+
+                    if response.status_code >= 500:
+                        raise requests.HTTPError(
+                            f"{response.status_code} Server Error for url: {self.colorectal_url}. "
+                            f"Response: {response.text[:500]}",
+                            response=response,
+                        )
+
+                    response.raise_for_status()
+                    result = response.json()
+                    break
+                except Exception as exc:
+                    last_exc = exc
+                    time.sleep(0.6 * (attempt + 1))
+            else:
+                raise last_exc  # type: ignore[misc]
+
+            label_map = {
+                0: "Colon Adenocarcinoma",
+                1: "Rectal Adenocarcinoma",
+                "0": "Colon Adenocarcinoma",
+                "1": "Rectal Adenocarcinoma",
+            }
+
+            raw_label = result.get("label")
+            label = label_map.get(raw_label, raw_label)
+            confidence = float(result.get("confidence", 0.0))
+            probability = result.get("probability")
+
+            return {
+                "predicted_subtype": label,
+                "confidence": confidence,
+                "probability": probability,
+                "classifier_type": "colorectal",
+            }
+
+        except Exception as e:
+            raise Exception(f"Colorectal Prediction failed:{str(e)}")
         

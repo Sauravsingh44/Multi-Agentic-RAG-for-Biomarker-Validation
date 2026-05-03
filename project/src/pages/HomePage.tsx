@@ -20,7 +20,7 @@ const statusStyles: Record<string, string> = {
 export default function HomePage() {
   const navigate = useNavigate();
   const [file, setFile] = useState<File | null>(null);
-  // const [patientId, setPatientId] = useState('');
+  const [classifierType, setClassifierType] = useState<'lung' | 'colorectal'>('lung');
   const [loading, setLoading] = useState(false);
   const [recentLoading, setRecentLoading] = useState(true);
   const [clearing, setClearing] = useState(false);
@@ -56,8 +56,16 @@ export default function HomePage() {
 
   const handleAnalyze = async () => {
     if (!file) return;
-    // Navigate immediately to show progress UI; upload happens in ResultsPage.
-    navigate('/results/creating', { state: { file } });
+    setLoading(true);
+    try {
+      const result = await api.analyze(file, classifierType);
+      navigate(`/results/${result.analysis_id}`);
+    } catch (error) {
+      console.error('Analysis upload failed:', error);
+      alert('Failed to start analysis: ' + (error instanceof Error ? error.message : 'Unknown error'));
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -94,6 +102,21 @@ export default function HomePage() {
 
         {/* Upload section */}
         <div className="max-w-2xl mx-auto space-y-6">
+          <div className="text-left">
+            <label htmlFor="classifierType" className="block text-sm font-medium text-gray-300 mb-2">
+              Classifier
+            </label>
+            <select
+              id="classifierType"
+              value={classifierType}
+              onChange={(e) => setClassifierType(e.target.value as 'lung' | 'colorectal')}
+              className="w-full rounded-xl border border-gray-700 bg-gray-900/80 px-4 py-3 text-gray-100 focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
+            >
+              <option value="lung">Lung Classifier</option>
+              <option value="colorectal">Colorectal Classifier</option>
+            </select>
+          </div>
+
           <UploadBox onFile={handleFile} />
 
           <button
@@ -108,7 +131,7 @@ export default function HomePage() {
             {loading ? (
               <>
                 <div className="w-5 h-5 border-2 border-gray-950/30 border-t-gray-950 rounded-full animate-spin" />
-                Creating Analysis...
+                Starting Pipeline...
               </>
             ) : (
               <>

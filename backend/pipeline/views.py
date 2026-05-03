@@ -7,8 +7,11 @@ from .serializers import PatientAnalysisSerializer
 @api_view(['POST'])
 def analyze_csv(request):
     file = request.FILES.get('file')
+    classifier_type = str(request.data.get('classifier_type', 'lung')).strip().lower()
     if not file or not file.name.endswith('.csv'):
         return Response({"error": "CSV file required"}, status=400)
+    if classifier_type not in {"lung", "colorectal"}:
+        return Response({"error": "Invalid classifier_type. Use 'lung' or 'colorectal'."}, status=400)
     
     patient_id = f"PATIENT-{uuid.uuid4().hex[:8]}"
     analysis = PatientAnalysis.objects.create(
@@ -21,14 +24,14 @@ def analyze_csv(request):
     csv_content = file.read().decode('utf-8')
     from .tasks import run_full_pipeline
     try:
-        run_full_pipeline.delay(str(analysis.id), csv_content)
+        run_full_pipeline.delay(str(analysis.id), csv_content, classifier_type)
     except Exception as exc:
         # If broker (Redis/Celery) is unavailable in local dev, run inline
         # so API calls don't fail with 500 at upload time.
         analysis.current_step = "Processing (no broker)"
         analysis.error_message = f"Celery unavailable, ran inline: {exc}"
         analysis.save(update_fields=["current_step", "error_message"])
-        run_full_pipeline(str(analysis.id), csv_content)
+        run_full_pipeline(str(analysis.id), csv_content, classifier_type)
     
     serializer = PatientAnalysisSerializer(analysis)
     return Response(serializer.data)

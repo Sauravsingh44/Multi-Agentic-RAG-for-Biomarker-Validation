@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import { Activity, AlertCircle, CheckCircle2 } from 'lucide-react';
 import PipelineProgress from '../components/PipelineProgress';
 import SubtypeCard from '../components/SubtypeCard';
@@ -42,140 +42,42 @@ function usePollPipeline(id: string) {
 
 export default function ResultsPage() {
   const { id } = useParams<{ id: string }>();
-  const location = useLocation();
-  const navigate = useNavigate();
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [createError, setCreateError] = useState<string | null>(null);
 
-  const isCreating = id === 'creating';
-  const creatingFile = (location.state as { file?: File } | null)?.file;
-
-  const { currentStep: simStep, status: simStatus } = usePollPipeline(!isCreating ? (id ?? '') : '');
+  const { currentStep: simStep, status: simStatus } = usePollPipeline(id ?? '');
 
   useEffect(() => {
     if (!id) return;
-    if (isCreating) return;
 
     let cancelled = false;
-    let interval: number | undefined;
-
-    const poll = async () => {
+    const pollInterval = window.setInterval(async () => {
       try {
         const res = await api.status(id);
         if (cancelled) return;
 
         setAnalysis(res.analysis as Analysis | null);
 
-        if (res.status === 'error') {
-          if (interval) window.clearInterval(interval);
-          return;
+        if (res.status === 'error' || res.status === 'complete') {
+          window.clearInterval(pollInterval);
         }
 
         if (res.status === 'complete') {
           const fullRes = await api.results(id);
-          if (cancelled) return;
           setAnalysis(fullRes as unknown as Analysis);
-          if (interval) window.clearInterval(interval);
         }
       } catch {
         // ignore
-      } finally {
-        if (!cancelled) setLoading(false);
       }
-    };
+    }, 3000);
 
-    poll();
-    interval = window.setInterval(poll, 3000);
     return () => {
       cancelled = true;
-      if (interval) window.clearInterval(interval);
+      window.clearInterval(pollInterval);
     };
   }, [id]);
 
-  useEffect(() => {
-    if (!isCreating) return;
-    if (!creatingFile) {
-      setCreateError('No file provided. Please go back and upload a CSV.');
-      setLoading(false);
-      return;
-    }
-
-    let cancelled = false;
-
-    const run = async () => {
-      try {
-        const { analysis_id } = await api.analyze(creatingFile);
-        if (cancelled) return;
-        navigate(`/results/${analysis_id}`, { replace: true });
-      } catch (e) {
-        if (cancelled) return;
-        setCreateError(e instanceof Error ? e.message : 'Upload failed');
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    };
-
-    run();
-    return () => {
-      cancelled = true;
-    };
-  }, [creatingFile, isCreating, navigate]);
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center py-32">
-        <div className="flex flex-col items-center gap-4">
-          <div className="w-10 h-10 border-2 border-cyan-400 border-t-transparent rounded-full animate-spin" />
-          <p className="text-gray-500 text-sm">{isCreating ? 'Uploading CSV and creating analysis...' : 'Loading analysis...'}</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (isCreating) {
-    if (createError) {
-      return (
-        <div className="flex items-center justify-center py-32">
-          <div className="flex flex-col items-center gap-3 text-center max-w-lg">
-            <AlertCircle size={40} className="text-red-400" />
-            <p className="text-gray-200 font-semibold">Could not start analysis</p>
-            <p className="text-gray-500 text-sm">{createError}</p>
-            <button
-              onClick={() => navigate('/')}
-              className="mt-4 text-sm font-semibold px-4 py-2 rounded-xl border border-gray-700 bg-gray-900/40 text-gray-200 hover:bg-gray-900/70 transition-colors"
-            >
-              Back to Home
-            </button>
-          </div>
-        </div>
-      );
-    }
-
-    // In normal flow, we should have navigated to /results/{id} once created.
-    return (
-      <div className="rounded-2xl border border-gray-800 bg-gray-900/40 p-12 text-center">
-        <div className="w-12 h-12 border-2 border-cyan-400/30 border-t-cyan-400 rounded-full animate-spin mx-auto mb-4" />
-        <p className="text-gray-200 font-semibold">Creating analysis…</p>
-        <p className="text-gray-600 text-sm mt-1">Uploading your CSV and starting the pipeline</p>
-      </div>
-    );
-  }
-
-  if (!analysis) {
-    return (
-      <div className="flex items-center justify-center py-32">
-        <div className="flex flex-col items-center gap-3 text-center">
-          <AlertCircle size={40} className="text-red-400" />
-          <p className="text-gray-300 font-medium">Analysis not found</p>
-          <p className="text-gray-600 text-sm">The requested analysis ID does not exist</p>
-        </div>
-      </div>
-    );
-  }
-
-  const currentStep = analysis.status === 'complete' ? 7 : simStep;
-  const currentStatus = analysis.status === 'complete' ? 'complete' : simStatus;
+  const currentStep = analysis?.status === 'complete' ? 7 : simStep;
+  const currentStatus = analysis?.status === 'complete' ? 'complete' : simStatus;
   const isComplete = currentStatus === 'complete';
   const isError = currentStatus === 'error';
   const results = analysis?.results ?? null;
@@ -190,7 +92,7 @@ export default function ResultsPage() {
             <span className="text-xs font-semibold text-cyan-400 uppercase tracking-wider">Analysis Results</span>
           </div>
           <h1 className="text-2xl font-bold text-gray-100">
-            Patient <span className="font-mono text-cyan-400">{analysis.patient_id}</span>
+            Patient <span className="font-mono text-cyan-400">{analysis?.patient_id || 'Unknown'}</span>
           </h1>
         </div>
 
@@ -293,7 +195,7 @@ export default function ResultsPage() {
                 {(analysis as unknown as { error_message?: string })?.error_message || 'Unknown error.'}
               </p>
               <p className="text-gray-600 text-xs mt-3">
-                If you’re stuck on “Classify Subtype”, it usually means the remote subtype model is slow/unreachable. Try again in a minute, or run the backend with network access.
+                If you're stuck on "Classify Subtype", it usually means the remote subtype model is slow/unreachable. Try again in a minute, or run the backend with network access.
               </p>
             </div>
           </div>
