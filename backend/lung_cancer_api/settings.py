@@ -80,6 +80,12 @@ CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
 ]
+# Comma-separated list, e.g. "https://my-app.vercel.app,https://preview-xyz.vercel.app"
+_cors_extra = os.getenv("CORS_ALLOWED_ORIGINS", "")
+if _cors_extra:
+    CORS_ALLOWED_ORIGINS.extend(
+        [origin.strip() for origin in _cors_extra.split(",") if origin.strip()]
+    )
 
 REST_FRAMEWORK = {
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',

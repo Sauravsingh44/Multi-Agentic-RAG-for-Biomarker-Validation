@@ -120,3 +120,4 @@ wcwidth
 xxhash
 yarl
 zstandard
+gunicorn
