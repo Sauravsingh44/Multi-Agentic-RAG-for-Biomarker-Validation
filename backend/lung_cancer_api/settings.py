@@ -12,7 +12,13 @@ load_dotenv(BASE_DIR / "pipeline" / ".env")
 SECRET_KEY = 'django-insecure--jtndq+2+ohkn8jsga!sy#9%^*ri+ve9un$nq=%@jero=dg%p8'
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+# Local: defaults to True. Render sets RENDER; Railway sets RAILWAY_ENVIRONMENT — then default
+# is False unless you set DJANGO_DEBUG=true explicitly.
+_is_deployed = bool(os.getenv("RENDER") or os.getenv("RAILWAY_ENVIRONMENT"))
+DEBUG = os.getenv(
+    "DJANGO_DEBUG",
+    "false" if _is_deployed else "true",
+).lower() in ("1", "true", "yes")
 
 ALLOWED_HOSTS = ['*']
 
@@ -86,6 +92,11 @@ if _cors_extra:
     CORS_ALLOWED_ORIGINS.extend(
         [origin.strip() for origin in _cors_extra.split(",") if origin.strip()]
     )
+
+# Vercel production + preview URLs (https://*.vercel.app). Custom domains: set CORS_ALLOWED_ORIGINS on the host (e.g. Render).
+CORS_ALLOWED_ORIGIN_REGEXES = [
+    r"^https://.*\.vercel\.app$",
+]
 
 REST_FRAMEWORK = {
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
