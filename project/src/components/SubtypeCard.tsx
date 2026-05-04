@@ -4,9 +4,11 @@ import {
 } from 'recharts';
 import type { AnalysisResults } from '../types';
 import { getCancerType, SUBTYPE_META, COLOR_STYLES } from '../types';
+import type { CancerType } from '../types';
 
 interface SubtypeCardProps {
   results: AnalysisResults;
+  forcedCancerType?: CancerType;
 }
 
 type SubtypeMeta = (typeof SUBTYPE_META)[keyof typeof SUBTYPE_META];
@@ -23,15 +25,17 @@ function getBarColor(name: string): string {
   return COLOR_STYLES[byLabel.color].hex;
 }
 
-export default function SubtypeCard({ results }: SubtypeCardProps) {
-  const subtype    = results.subtype;
+export default function SubtypeCard({ results, forcedCancerType }: SubtypeCardProps) {
+  const topScore = results.subtypeScores.reduce<{ name: string; value: number } | null>(
+    (best, current) => (best == null || current.value > best.value ? current : best),
+    null,
+  );
+  const subtype    = (topScore?.name as keyof typeof SUBTYPE_META) ?? results.subtype;
   const meta       = SUBTYPE_META[subtype];
   const style      = COLOR_STYLES[meta?.color ?? 'cyan'];
-  const cancerType = getCancerType(subtype);
+  const cancerType = forcedCancerType ?? getCancerType(subtype);
   const confidencePercent =
-    Number(results.confidence) <= 1
-      ? Number(results.confidence) * 100
-      : Number(results.confidence);
+    topScore?.value ?? (Number(results.confidence) <= 1 ? Number(results.confidence) * 100 : Number(results.confidence));
 
   return (
     <div className="rounded-2xl border border-gray-700/60 bg-gray-900/60 backdrop-blur-sm p-6">

@@ -2,18 +2,40 @@ import { Download, User, Dna, Pill as PillIcon, ClipboardList, Activity } from '
 import { jsPDF } from 'jspdf';
 import type { AnalysisResults } from '../types';
 import { getCancerType, SUBTYPE_META, COLOR_STYLES, CANCER_LABELS } from '../types';
+import type { CancerType } from '../types';
 
 interface SummaryReportProps {
   results: AnalysisResults;
+  forcedCancerType?: CancerType;
 }
 
-export default function SummaryReport({ results }: SummaryReportProps) {
+function normalizeSummaryByCancerType(text: string, cancerType: CancerType): string {
+  if (cancerType !== 'colorectal') return text;
+  return text
+    .replace(/\blung cancer\b/gi, 'colorectal cancer')
+    .replace(/\blung\b/gi, 'colorectal')
+    .replace(/\bLUAD\b/g, 'COAD')
+    .replace(/\bLUSC\b/g, 'READ');
+}
+
+function normalizeConfidencePercent(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  let normalized = value;
+  if (normalized <= 1) normalized *= 100;
+  // Defensive fix for accidental double scaling (e.g., 10000 instead of 100).
+  if (normalized > 100 && normalized <= 10000) normalized /= 100;
+  return Math.max(0, Math.min(100, normalized));
+}
+
+export default function SummaryReport({ results, forcedCancerType }: SummaryReportProps) {
   const { summary }  = results;
   const topGenes     = summary.topGenes ?? [];
-  const cancerType   = getCancerType(summary.subtype);
+  const cancerType   = forcedCancerType ?? getCancerType(summary.subtype);
   const label        = CANCER_LABELS[cancerType];
   const meta         = SUBTYPE_META[summary.subtype];
   const accent       = COLOR_STYLES[meta?.color ?? 'cyan'];
+  const normalizedAggregatorSummary = normalizeSummaryByCancerType(summary.aggregatorSummary, cancerType);
+  const confidencePercent = normalizeConfidencePercent(Number(results.confidence));
 
   const escapeRegex = (v: string) => v.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -64,7 +86,7 @@ export default function SummaryReport({ results }: SummaryReportProps) {
     doc.setTextColor(148, 178, 210);
     doc.text(`Generated: ${new Date().toLocaleString()}`, margin, 64);
     doc.text(`Patient ID: ${summary.patientId}`, margin, 80);
-    const confLabel = `${(results.confidence * 100).toFixed(1)}% Confidence`;
+    const confLabel = `${confidencePercent.toFixed(1)}% Confidence`;
     doc.setFillColor(aR, aG, aB);
     doc.roundedRect(pageWidth - margin - 110, 30, 110, 28, 4, 4, 'F');
     doc.setTextColor(8, 16, 36);
@@ -171,7 +193,7 @@ export default function SummaryReport({ results }: SummaryReportProps) {
     addPillRow(summary.topDrugs, [255, 247, 213], [92, 59, 5]);
 
     addSection('Aggregator Summary — All Genes');
-    addHighlightedBody(summary.aggregatorSummary, summary.topGenes);
+    addHighlightedBody(normalizedAggregatorSummary, summary.topGenes);
 
     // Footer
     const total = doc.getNumberOfPages();
@@ -190,7 +212,7 @@ export default function SummaryReport({ results }: SummaryReportProps) {
     doc.save(`report-${summary.patientId}.pdf`);
   };
 
-  const confidence = (results.confidence * 100).toFixed(1);
+  const confidence = confidencePercent.toFixed(1);
 
   return (
     <div
@@ -308,7 +330,7 @@ export default function SummaryReport({ results }: SummaryReportProps) {
             </span>
           </div>
           <p className="text-sm leading-relaxed whitespace-pre-line flex-1" style={{ color: '#cbd5e1' }}>
-            {renderHighlightedSummary(summary.aggregatorSummary, topGenes)}
+            {renderHighlightedSummary(normalizedAggregatorSummary, topGenes)}
           </p>
         </div>
       </div>

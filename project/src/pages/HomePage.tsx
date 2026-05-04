@@ -59,7 +59,7 @@ export default function HomePage() {
     setLoading(true);
     try {
       const result = await api.analyze(file, classifierType);
-      navigate(`/results/${result.analysis_id}`);
+      navigate(`/results/${result.analysis_id}?cancerType=${classifierType}`);
     } catch (error) {
       console.error('Analysis upload failed:', error);
       alert('Failed to start analysis: ' + (error instanceof Error ? error.message : 'Unknown error'));

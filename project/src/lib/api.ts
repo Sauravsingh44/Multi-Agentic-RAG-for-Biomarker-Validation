@@ -23,14 +23,70 @@ function normalizeStatus(status?: string) {
 }
 
 function normalizeAnalysisPayload(payload: Record<string, unknown>) {
+  const normalizedResults = normalizeResults(payload.results as Record<string, unknown> | undefined);
   return {
     ...payload,
     status: normalizeStatus(payload.status as string | undefined),
     // Backend can return empty object for unfinished analyses.
-    results:
-      payload.results && Object.keys(payload.results as Record<string, unknown>).length > 0
-        ? payload.results
-        : null,
+    results: normalizedResults,
+  };
+}
+
+function canonicalSubtype(value: unknown): 'LUAD' | 'LUSC' | 'COAD' | 'READ' | null {
+  if (value == null) return null;
+  const key = String(value).trim().toUpperCase();
+  const map: Record<string, 'LUAD' | 'LUSC' | 'COAD' | 'READ'> = {
+    LUAD: 'LUAD',
+    LUSC: 'LUSC',
+    COAD: 'COAD',
+    READ: 'READ',
+    'LUNG ADENOCARCINOMA': 'LUAD',
+    'LUNG SQUAMOUS CELL CARCINOMA': 'LUSC',
+    'COLON ADENOCARCINOMA': 'COAD',
+    'RECTAL ADENOCARCINOMA': 'READ',
+  };
+  return map[key] ?? null;
+}
+
+function normalizeScore(value: unknown): number {
+  const raw = typeof value === 'string' ? value.replace('%', '').trim() : value;
+  const num = Number(raw);
+  if (!Number.isFinite(num)) return 0;
+  return num <= 1 ? num * 100 : num;
+}
+
+function normalizeResults(results?: Record<string, unknown> | null) {
+  if (!results || Object.keys(results).length === 0) return null;
+
+  const scores = Array.isArray(results.subtypeScores)
+    ? (results.subtypeScores as Array<{ name?: unknown; value?: unknown }>).map((s) => ({
+        name: canonicalSubtype(s.name) ?? String(s.name ?? ''),
+        value: normalizeScore(s.value),
+      }))
+    : [];
+
+  const winner = scores.reduce<{ name: string; value: number } | null>(
+    (best, current) => (best == null || current.value > best.value ? current : best),
+    null
+  );
+  // Always trust the highest score when score rows are present.
+  const normalizedSubtype = canonicalSubtype(winner?.name) ?? canonicalSubtype(results.subtype) ?? 'LUAD';
+  const normalizedConfidence = winner ? winner.value : normalizeScore(results.confidence);
+
+  const normalizedSummary =
+    results.summary && typeof results.summary === 'object'
+      ? {
+          ...(results.summary as Record<string, unknown>),
+          subtype: normalizedSubtype,
+        }
+      : results.summary;
+
+  return {
+    ...results,
+    subtype: normalizedSubtype,
+    confidence: normalizedConfidence,
+    subtypeScores: scores,
+    summary: normalizedSummary,
   };
 }
 

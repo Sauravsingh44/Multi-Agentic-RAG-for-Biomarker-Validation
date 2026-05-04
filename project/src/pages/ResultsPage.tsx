@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useSearchParams } from 'react-router-dom';
 import { Activity, AlertCircle, CheckCircle2 } from 'lucide-react';
 import PipelineProgress from '../components/PipelineProgress';
 import SubtypeCard from '../components/SubtypeCard';
@@ -9,6 +9,8 @@ import AgentReports from '../components/AgentReports';
 import SummaryReport from '../components/SummaryReport';
 import { api } from '../lib/api';
 import type { Analysis } from '../types';
+import { getCancerType } from '../types';
+import type { CancerType } from '../types';
 
 function usePollPipeline(id: string) {
   const [currentStep, setCurrentStep] = useState(0);
@@ -42,6 +44,7 @@ function usePollPipeline(id: string) {
 
 export default function ResultsPage() {
   const { id } = useParams<{ id: string }>();
+  const [searchParams] = useSearchParams();
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
 
   const { currentStep: simStep, status: simStatus } = usePollPipeline(id ?? '');
@@ -83,6 +86,15 @@ export default function ResultsPage() {
   const results = analysis?.results ?? null;
   const confidencePercent =
     results ? (Number(results.confidence) <= 1 ? Number(results.confidence) * 100 : Number(results.confidence)) : 0;
+  const forcedCancerTypeParam = searchParams.get('cancerType');
+  const forcedCancerType: CancerType | undefined =
+    forcedCancerTypeParam === 'lung' || forcedCancerTypeParam === 'colorectal'
+      ? forcedCancerTypeParam
+      : undefined;
+  const cancerType: CancerType | undefined = results
+    ? forcedCancerType ?? getCancerType(results.subtype)
+    : forcedCancerType;
+  const cancerDisplayName = cancerType === 'colorectal' ? 'Colorectal' : 'Lung';
 
   return (
     <div className="space-y-10">
@@ -93,6 +105,9 @@ export default function ResultsPage() {
             <Activity size={16} className="text-cyan-400" />
             <span className="text-xs font-semibold text-cyan-400 uppercase tracking-wider">Analysis Results</span>
           </div>
+          {cancerType && (
+            <p className="text-xs text-gray-500 mb-1">{cancerDisplayName} cancer classifier</p>
+          )}
           <h1 className="text-2xl font-bold text-gray-100">
             Patient <span className="font-mono text-cyan-400">{analysis?.patient_id || 'Unknown'}</span>
           </h1>
@@ -140,7 +155,7 @@ export default function ResultsPage() {
 
           <div className="grid lg:grid-cols-5 gap-6">
             <div className="lg:col-span-2">
-              <SubtypeCard results={results} />
+              <SubtypeCard results={results} forcedCancerType={forcedCancerType} />
             </div>
             <div className="lg:col-span-3">
               <div className="rounded-2xl border border-gray-700/60 bg-gray-900/60 backdrop-blur-sm p-6 h-full flex flex-col justify-between">
@@ -182,7 +197,7 @@ export default function ResultsPage() {
             <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider">Final Summary Report</h2>
             <div className="flex-1 h-px bg-gray-800" />
           </div>
-          <SummaryReport results={results} />
+          <SummaryReport results={results} forcedCancerType={forcedCancerType} />
         </section>
       )}
 
