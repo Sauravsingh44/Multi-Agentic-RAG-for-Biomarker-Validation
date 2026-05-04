@@ -18,9 +18,9 @@ def _run_pipeline_in_thread(analysis_id: str, csv_content: str, classifier_type:
     """Run heavy pipeline off the request thread (avoids Gunicorn/Render timeouts when Celery is down)."""
     close_old_connections()
     try:
-        from .tasks import run_full_pipeline
+        from .queue_tasks import run_full_pipeline_queued
 
-        run_full_pipeline(analysis_id, csv_content, classifier_type)
+        run_full_pipeline_queued(analysis_id, csv_content, classifier_type)
     except Exception:
         logger.exception("Background pipeline failed for analysis_id=%s", analysis_id)
     finally:
@@ -58,7 +58,7 @@ def analyze_csv(request):
                 status=400,
             )
 
-        from .tasks import run_full_pipeline
+        from .queue_tasks import run_full_pipeline_queued
 
         # In cloud deploys, avoid running the heavy ML/RAG pipeline inside web workers by default.
         # Use Celery + Redis for production, or explicitly allow thread fallback.
@@ -69,7 +69,7 @@ def analyze_csv(request):
         ).lower() in ("1", "true", "yes")
 
         try:
-            run_full_pipeline.delay(str(analysis.id), csv_content, classifier_type)
+            run_full_pipeline_queued.delay(str(analysis.id), csv_content, classifier_type)
         except Exception as exc:
             if not allow_thread_fallback:
                 analysis.status = "FAILED"
