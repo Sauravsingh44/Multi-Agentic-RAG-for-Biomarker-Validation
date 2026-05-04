@@ -1,47 +1,33 @@
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
-import type { AnalysisResults, Subtype } from '../types';
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid,
+  Tooltip, ResponsiveContainer, Cell,
+} from 'recharts';
+import type { AnalysisResults } from '../types';
+import { getCancerType, SUBTYPE_META, COLOR_STYLES } from '../types';
 
 interface SubtypeCardProps {
   results: AnalysisResults;
 }
 
-type CancerType = 'lung' | 'colorectal';
-
-function getCancerType(subtype: Subtype): CancerType {
-  return subtype === 'Colon Adenocarcinoma' || subtype === 'Rectal Adenocarcinoma'
-    ? 'colorectal'
-    : 'lung';
-}
-
-const SUBTYPE_META: Record<Subtype, { label: string; color: 'cyan' | 'orange' | 'violet' | 'rose' }> = {
-  LUAD: { label: 'Lung Adenocarcinoma', color: 'cyan' },
-  LUSC: { label: 'Lung Squamous Cell Carcinoma', color: 'orange' },
-  'Colon Adenocarcinoma': { label: 'Colon Adenocarcinoma', color: 'violet' },
-  'Rectal Adenocarcinoma': { label: 'Rectal Adenocarcinoma', color: 'rose' },
-};
-
-const COLOR_STYLES = {
-  cyan:   { border: 'border-cyan-500/50',   bg: 'bg-cyan-500/10',   text: 'text-cyan-400',   hex: '#22d3ee' },
-  orange: { border: 'border-orange-500/50', bg: 'bg-orange-500/10', text: 'text-orange-400', hex: '#f97316' },
-  violet: { border: 'border-violet-500/50', bg: 'bg-violet-500/10', text: 'text-violet-400', hex: '#a78bfa' },
-  rose:   { border: 'border-rose-500/50',   bg: 'bg-rose-500/10',   text: 'text-rose-400',   hex: '#fb7185' },
-};
+type SubtypeMeta = (typeof SUBTYPE_META)[keyof typeof SUBTYPE_META];
 
 function getBarColor(name: string): string {
-  const map: Record<string, string> = {
-    LUAD: COLOR_STYLES.cyan.hex,
-    LUSC: COLOR_STYLES.orange.hex,
-    'Colon Adenocarcinoma': COLOR_STYLES.violet.hex,
-    'Rectal Adenocarcinoma': COLOR_STYLES.rose.hex,
-  };
-  return map[name] ?? '#6b7280';
+  const byKey = (SUBTYPE_META as Record<string, SubtypeMeta>)[name];
+  if (byKey) return COLOR_STYLES[byKey.color].hex;
+
+  const byLabel = (Object.values(SUBTYPE_META) as SubtypeMeta[]).find(
+    (meta) => meta.label === name,
+  );
+  if (!byLabel) return '#6b7280';
+
+  return COLOR_STYLES[byLabel.color].hex;
 }
 
 export default function SubtypeCard({ results }: SubtypeCardProps) {
-  const meta = SUBTYPE_META[results.subtype] ?? { label: results.subtype, color: 'cyan' as const };
-  const style = COLOR_STYLES[meta.color];
-  const cancerType = getCancerType(results.subtype);
-  const isShortCode = results.subtype === 'LUAD' || results.subtype === 'LUSC';
+  const subtype    = results.subtype;
+  const meta       = SUBTYPE_META[subtype];
+  const style      = COLOR_STYLES[meta?.color ?? 'cyan'];
+  const cancerType = getCancerType(subtype);
   const confidencePercent =
     Number(results.confidence) <= 1
       ? Number(results.confidence) * 100
@@ -55,15 +41,14 @@ export default function SubtypeCard({ results }: SubtypeCardProps) {
       <p className="text-xs text-gray-600 mb-5 capitalize">{cancerType} cancer</p>
 
       <div className="flex flex-col sm:flex-row items-center gap-6">
+
         {/* Badge */}
-        <div className="flex flex-col items-center">
+        <div className="flex flex-col items-center flex-shrink-0">
           <div className={`px-8 py-5 rounded-2xl border-2 text-center ${style.border} ${style.bg}`}>
-            <p className={`font-black tracking-wider ${style.text} ${isShortCode ? 'text-5xl' : 'text-xl leading-tight'}`}>
-              {results.subtype}
+            <p className={`text-5xl font-black tracking-wider ${style.text}`}>
+              {subtype}
             </p>
-            {isShortCode && (
-              <p className="text-xs text-gray-500 mt-1">{meta.label}</p>
-            )}
+            <p className="text-xs text-gray-500 mt-1">{meta?.label ?? subtype}</p>
           </div>
           <div className="mt-4 text-center">
             <p className="text-3xl font-bold text-gray-100">{confidencePercent.toFixed(1)}%</p>
@@ -94,7 +79,7 @@ export default function SubtypeCard({ results }: SubtypeCardProps) {
                 tick={{ fill: '#9ca3af', fontSize: 11, fontWeight: 600 }}
                 tickLine={false}
                 axisLine={false}
-                width={180}
+                width={60}
               />
               <Tooltip
                 cursor={{ fill: 'rgba(255,255,255,0.03)' }}
@@ -108,7 +93,11 @@ export default function SubtypeCard({ results }: SubtypeCardProps) {
               />
               <Bar dataKey="value" radius={[0, 6, 6, 0]} maxBarSize={32}>
                 {results.subtypeScores.map((entry) => (
-                  <Cell key={entry.name} fill={getBarColor(entry.name)} fillOpacity={0.85} />
+                  <Cell
+                    key={entry.name}
+                    fill={getBarColor(entry.name)}
+                    fillOpacity={0.85}
+                  />
                 ))}
               </Bar>
             </BarChart>

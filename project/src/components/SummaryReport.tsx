@@ -1,186 +1,131 @@
 import { Download, User, Dna, Pill as PillIcon, ClipboardList, Activity } from 'lucide-react';
 import { jsPDF } from 'jspdf';
-import type { AnalysisResults, Subtype } from '../types';
+import type { AnalysisResults } from '../types';
+import { getCancerType, SUBTYPE_META, COLOR_STYLES, CANCER_LABELS } from '../types';
 
 interface SummaryReportProps {
   results: AnalysisResults;
 }
 
-type CancerType = 'lung' | 'colorectal';
-
-function getCancerType(subtype: Subtype): CancerType {
-  return subtype === 'Colon Adenocarcinoma' || subtype === 'Rectal Adenocarcinoma'
-    ? 'colorectal'
-    : 'lung';
-}
-
-const CANCER_LABELS: Record<CancerType, { reportTitle: string; footerLabel: string; headerColor: string }> = {
-  lung: {
-    reportTitle: 'Lung Cancer Biomarker Analysis',
-    footerLabel: 'Lung Cancer Biomarker Report',
-    headerColor: '#00bcd4',
-  },
-  colorectal: {
-    reportTitle: 'Colorectal Cancer Biomarker Analysis',
-    footerLabel: 'Colorectal Cancer Biomarker Report',
-    headerColor: '#a78bfa',
-  },
-};
-
-const ACCENT: Record<CancerType, { hex: string; tailwind: string; dimBg: string; dimBorder: string }> = {
-  lung: {
-    hex: '#00bcd4',
-    tailwind: 'text-cyan-400',
-    dimBg: 'rgba(0,188,212,0.12)',
-    dimBorder: 'rgba(0,188,212,0.35)',
-  },
-  colorectal: {
-    hex: '#a78bfa',
-    tailwind: 'text-violet-400',
-    dimBg: 'rgba(167,139,250,0.12)',
-    dimBorder: 'rgba(167,139,250,0.35)',
-  },
-};
-
 export default function SummaryReport({ results }: SummaryReportProps) {
-  const { summary } = results;
-  const topGenes = summary.topGenes ?? [];
-  const cancerType = getCancerType(summary.subtype);
-  const label = CANCER_LABELS[cancerType];
-  const accent = ACCENT[cancerType];
+  const { summary }  = results;
+  const topGenes     = summary.topGenes ?? [];
+  const cancerType   = getCancerType(summary.subtype);
+  const label        = CANCER_LABELS[cancerType];
+  const meta         = SUBTYPE_META[summary.subtype];
+  const accent       = COLOR_STYLES[meta?.color ?? 'cyan'];
 
-  const escapeRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const escapeRegex = (v: string) => v.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
   const renderHighlightedSummary = (text: string, genes: string[]) => {
     const safeText = text || '';
-    const terms = [...new Set((genes || []).filter(Boolean))].sort((a, b) => b.length - a.length);
+    const terms = [...new Set(genes.filter(Boolean))].sort((a, b) => b.length - a.length);
     if (!terms.length) return safeText;
     const pattern = new RegExp(`(${terms.map(escapeRegex).join('|')})`, 'gi');
-    const segments = safeText.split(pattern);
-    return segments.map((segment, idx) => {
-      const isGene = terms.some((g) => g.toLowerCase() === segment.toLowerCase());
-      if (!isGene) return <span key={idx}>{segment}</span>;
+    return safeText.split(pattern).map((seg, idx) => {
+      const isGene = terms.some((g) => g.toLowerCase() === seg.toLowerCase());
+      if (!isGene) return <span key={idx}>{seg}</span>;
       return (
         <span
           key={idx}
           className="px-1 rounded font-semibold"
           style={{ background: `${accent.hex}28`, color: accent.hex }}
         >
-          {segment}
+          {seg}
         </span>
       );
     });
   };
 
   const handleDownload = () => {
-    const doc = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' });
-    const pageWidth = doc.internal.pageSize.getWidth();
-    const pageHeight = doc.internal.pageSize.getHeight();
-    const margin = 48;
+    const doc          = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' });
+    const pageWidth    = doc.internal.pageSize.getWidth();
+    const pageHeight   = doc.internal.pageSize.getHeight();
+    const margin       = 48;
     const contentWidth = pageWidth - margin * 2;
-    let cursorY = margin;
+    let cursorY        = margin;
+    const [aR, aG, aB] = label.accentRgb;
 
-    const ensurePageSpace = (needed: number) => {
-      if (cursorY + needed <= pageHeight - margin) return;
-      doc.addPage();
-      cursorY = margin;
+    const ensureSpace = (n: number) => {
+      if (cursorY + n > pageHeight - margin) { doc.addPage(); cursorY = margin; }
     };
 
-    // Accent RGB from hex
-    const accentR = cancerType === 'lung' ? 0 : 167;
-    const accentG = cancerType === 'lung' ? 188 : 139;
-    const accentB = cancerType === 'lung' ? 212 : 250;
-
-    // Header band
+    // Header
     doc.setFillColor(8, 16, 36);
     doc.rect(0, 0, pageWidth, 100, 'F');
-    doc.setFillColor(accentR, accentG, accentB);
+    doc.setFillColor(aR, aG, aB);
     doc.rect(0, 0, 5, 100, 'F');
-
     doc.setTextColor(255, 255, 255);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(20);
-    doc.text(`${label.footerLabel}`, margin, 44);
-
+    doc.text(label.footerLabel, margin, 44);
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(9);
     doc.setTextColor(148, 178, 210);
     doc.text(`Generated: ${new Date().toLocaleString()}`, margin, 64);
     doc.text(`Patient ID: ${summary.patientId}`, margin, 80);
-
     const confLabel = `${(results.confidence * 100).toFixed(1)}% Confidence`;
-    doc.setFillColor(accentR, accentG, accentB);
+    doc.setFillColor(aR, aG, aB);
     doc.roundedRect(pageWidth - margin - 110, 30, 110, 28, 4, 4, 'F');
     doc.setTextColor(8, 16, 36);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(10);
     doc.text(confLabel, pageWidth - margin - 55, 48, { align: 'center' });
-
     cursorY = 124;
 
     const addSection = (title: string) => {
-      ensurePageSpace(40);
+      ensureSpace(40);
       doc.setDrawColor(220, 230, 240);
       doc.setLineWidth(0.5);
       doc.line(margin, cursorY, pageWidth - margin, cursorY);
       cursorY += 10;
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(8);
-      doc.setTextColor(accentR, accentG, accentB);
+      doc.setTextColor(aR, aG, aB);
       doc.text(title.toUpperCase(), margin, cursorY);
       cursorY += 16;
     };
 
     const addHighlightedBody = (
       text: string,
-      highlightTerms: string[],
+      terms: string[],
       size = 9.5,
       color: [number, number, number] = [44, 55, 72]
     ) => {
       const safeText = text?.trim() || 'N/A';
-      const terms = [...new Set((highlightTerms || []).filter(Boolean))].sort((a, b) => b.length - a.length);
-      const lines = doc.splitTextToSize(safeText, contentWidth);
-      const lh = size * 1.45;
-      ensurePageSpace(lines.length * lh + 8);
+      const sorted   = [...new Set(terms.filter(Boolean))].sort((a, b) => b.length - a.length);
+      const lines    = doc.splitTextToSize(safeText, contentWidth);
+      const lh       = size * 1.45;
+      ensureSpace(lines.length * lh + 8);
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(size);
-
       for (const rawLine of lines) {
         const line = String(rawLine);
-        const y = cursorY;
-        let x = margin;
-        if (!terms.length) {
-          doc.setTextColor(color[0], color[1], color[2]);
+        const y    = cursorY;
+        let x      = margin;
+        if (!sorted.length) {
+          doc.setTextColor(...color);
           doc.text(line, x, y);
           cursorY += lh;
           continue;
         }
-        const pattern = new RegExp(`(${terms.map(escapeRegex).join('|')})`, 'gi');
-        let last = 0;
-        let match: RegExpExecArray | null = pattern.exec(line);
-        while (match) {
-          const idx = match.index;
-          const hit = match[0];
-          const before = line.slice(last, idx);
-          if (before) {
-            doc.setTextColor(color[0], color[1], color[2]);
-            doc.text(before, x, y);
-            x += doc.getTextWidth(before);
-          }
-          const hitWidth = doc.getTextWidth(hit);
+        const pat = new RegExp(`(${sorted.map(escapeRegex).join('|')})`, 'gi');
+        let last  = 0;
+        let m     = pat.exec(line);
+        while (m) {
+          const before = line.slice(last, m.index);
+          if (before) { doc.setTextColor(...color); doc.text(before, x, y); x += doc.getTextWidth(before); }
+          const hw = doc.getTextWidth(m[0]);
           doc.setFillColor(224, 242, 254);
-          doc.roundedRect(x - 1.5, y - size + 1.5, hitWidth + 3, size + 4, 2, 2, 'F');
+          doc.roundedRect(x - 1.5, y - size + 1.5, hw + 3, size + 4, 2, 2, 'F');
           doc.setTextColor(3, 105, 161);
-          doc.text(hit, x, y);
-          x += hitWidth;
-          last = idx + hit.length;
-          match = pattern.exec(line);
+          doc.text(m[0], x, y);
+          x   += hw;
+          last = m.index + m[0].length;
+          m    = pat.exec(line);
         }
         const tail = line.slice(last);
-        if (tail) {
-          doc.setTextColor(color[0], color[1], color[2]);
-          doc.text(tail, x, y);
-        }
+        if (tail) { doc.setTextColor(...color); doc.text(tail, x, y); }
         cursorY += lh;
       }
       cursorY += 8;
@@ -188,27 +133,21 @@ export default function SummaryReport({ results }: SummaryReportProps) {
 
     const addPillRow = (
       items: string[],
-      bgRgb: [number, number, number],
-      textRgb: [number, number, number]
+      bg: [number, number, number],
+      fg: [number, number, number]
     ) => {
-      const pillH = 16;
-      const gap = 6;
-      const pillPad = 10;
-      ensurePageSpace(pillH + 12);
+      const pillH = 16, gap = 6, pad = 10;
+      ensureSpace(pillH + 12);
       doc.setFontSize(8);
       doc.setFont('helvetica', 'bold');
       let x = margin;
       for (const item of items) {
-        const w = doc.getTextWidth(item) + pillPad * 2;
-        if (x + w > pageWidth - margin) {
-          x = margin;
-          cursorY += pillH + gap;
-          ensurePageSpace(pillH + gap);
-        }
-        doc.setFillColor(bgRgb[0], bgRgb[1], bgRgb[2]);
+        const w = doc.getTextWidth(item) + pad * 2;
+        if (x + w > pageWidth - margin) { x = margin; cursorY += pillH + gap; ensureSpace(pillH + gap); }
+        doc.setFillColor(...bg);
         doc.roundedRect(x, cursorY - 11, w, pillH, 3, 3, 'F');
-        doc.setTextColor(textRgb[0], textRgb[1], textRgb[2]);
-        doc.text(item, x + pillPad, cursorY);
+        doc.setTextColor(...fg);
+        doc.text(item, x + pad, cursorY);
         x += w + gap;
       }
       cursorY += pillH + 6;
@@ -232,11 +171,11 @@ export default function SummaryReport({ results }: SummaryReportProps) {
     addPillRow(summary.topDrugs, [255, 247, 213], [92, 59, 5]);
 
     addSection('Aggregator Summary — All Genes');
-    addHighlightedBody(summary.aggregatorSummary, summary.topGenes, 9.5, [44, 55, 72]);
+    addHighlightedBody(summary.aggregatorSummary, summary.topGenes);
 
     // Footer
-    const totalPages = doc.getNumberOfPages();
-    for (let i = 1; i <= totalPages; i++) {
+    const total = doc.getNumberOfPages();
+    for (let i = 1; i <= total; i++) {
       doc.setPage(i);
       doc.setDrawColor(220, 230, 240);
       doc.setLineWidth(0.4);
@@ -245,7 +184,7 @@ export default function SummaryReport({ results }: SummaryReportProps) {
       doc.setFontSize(8);
       doc.setTextColor(160, 174, 192);
       doc.text(`${label.footerLabel} — Confidential`, margin, pageHeight - 16);
-      doc.text(`Page ${i} of ${totalPages}`, pageWidth - margin, pageHeight - 16, { align: 'right' });
+      doc.text(`Page ${i} of ${total}`, pageWidth - margin, pageHeight - 16, { align: 'right' });
     }
 
     doc.save(`report-${summary.patientId}.pdf`);
@@ -276,7 +215,7 @@ export default function SummaryReport({ results }: SummaryReportProps) {
               <Activity size={13} style={{ color: accent.hex }} className="opacity-70" />
               <span
                 className="text-xs font-semibold uppercase tracking-widest"
-                style={{ color: accent.hex, opacity: 0.7, letterSpacing: '0.14em' }}
+                style={{ color: accent.hex, opacity: 0.8, letterSpacing: '0.14em' }}
               >
                 Final Summary Report
               </span>
@@ -291,17 +230,9 @@ export default function SummaryReport({ results }: SummaryReportProps) {
           <button
             onClick={handleDownload}
             className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 flex-shrink-0"
-            style={{
-              background: accent.dimBg,
-              border: `1px solid ${accent.dimBorder}`,
-              color: accent.hex,
-            }}
-            onMouseEnter={(e) => {
-              (e.currentTarget as HTMLButtonElement).style.background = accent.hex + '38';
-            }}
-            onMouseLeave={(e) => {
-              (e.currentTarget as HTMLButtonElement).style.background = accent.dimBg;
-            }}
+            style={{ background: accent.dimBg, border: `1px solid ${accent.dimBorder}`, color: accent.hex }}
+            onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = accent.hex + '38'; }}
+            onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = accent.dimBg; }}
           >
             <Download size={14} />
             Download PDF
@@ -310,17 +241,11 @@ export default function SummaryReport({ results }: SummaryReportProps) {
       </div>
 
       {/* Body */}
-      <div
-        style={{ background: 'rgba(17, 24, 39, 0.55)' }}
-        className="p-8 grid sm:grid-cols-2 gap-8"
-      >
+      <div style={{ background: 'rgba(17, 24, 39, 0.55)' }} className="p-8 grid sm:grid-cols-2 gap-8">
+
         {/* Left column */}
         <div className="space-y-7">
-          <Field
-            icon={<User size={13} className="text-slate-500" />}
-            iconBg="#f1f5f9"
-            label="Patient ID"
-          >
+          <Field icon={<User size={13} className="text-slate-500" />} iconBg="#f1f5f9" label="Patient ID">
             <span className="font-mono font-bold text-gray-200 text-sm tracking-wide">
               {summary.patientId}
             </span>
@@ -332,10 +257,7 @@ export default function SummaryReport({ results }: SummaryReportProps) {
             label="Predicted Subtype"
           >
             <div className="flex items-baseline gap-3 flex-wrap">
-              <span
-                className="font-black text-2xl tracking-tight leading-tight"
-                style={{ color: accent.hex }}
-              >
+              <span className="font-black text-3xl tracking-tight" style={{ color: accent.hex }}>
                 {summary.subtype}
               </span>
               <ConfidenceBadge value={Number(confidence)} />
@@ -348,9 +270,7 @@ export default function SummaryReport({ results }: SummaryReportProps) {
             label="Top Driver Genes"
           >
             <div className="flex flex-wrap gap-1.5 mt-0.5">
-              {summary.topGenes.map((gene) => (
-                <Pill key={gene} color="emerald">{gene}</Pill>
-              ))}
+              {summary.topGenes.map((gene) => <Pill key={gene} color="emerald">{gene}</Pill>)}
             </div>
           </Field>
 
@@ -360,9 +280,7 @@ export default function SummaryReport({ results }: SummaryReportProps) {
             label="Top Drug Candidates"
           >
             <div className="flex flex-wrap gap-1.5 mt-0.5">
-              {summary.topDrugs.map((drug) => (
-                <Pill key={drug} color="amber">{drug}</Pill>
-              ))}
+              {summary.topDrugs.map((drug) => <Pill key={drug} color="amber">{drug}</Pill>)}
             </div>
           </Field>
         </div>
@@ -370,10 +288,7 @@ export default function SummaryReport({ results }: SummaryReportProps) {
         {/* Right column */}
         <div
           className="rounded-xl p-5 flex flex-col gap-3"
-          style={{
-            background: 'rgba(17, 24, 39, 0.7)',
-            border: '1px solid rgba(75, 85, 99, 0.7)',
-          }}
+          style={{ background: 'rgba(17, 24, 39, 0.7)', border: '1px solid rgba(75, 85, 99, 0.7)' }}
         >
           <div
             className="flex items-center gap-2 pb-3"
@@ -392,10 +307,7 @@ export default function SummaryReport({ results }: SummaryReportProps) {
               Aggregator Summary
             </span>
           </div>
-          <p
-            className="text-sm leading-relaxed whitespace-pre-line flex-1"
-            style={{ color: '#cbd5e1' }}
-          >
+          <p className="text-sm leading-relaxed whitespace-pre-line flex-1" style={{ color: '#cbd5e1' }}>
             {renderHighlightedSummary(summary.aggregatorSummary, topGenes)}
           </p>
         </div>
@@ -404,31 +316,19 @@ export default function SummaryReport({ results }: SummaryReportProps) {
       {/* Footer */}
       <div
         className="px-8 py-3 flex items-center justify-between"
-        style={{
-          background: 'rgba(17, 24, 39, 0.7)',
-          borderTop: '1px solid rgba(75, 85, 99, 0.7)',
-        }}
+        style={{ background: 'rgba(17, 24, 39, 0.7)', borderTop: '1px solid rgba(75, 85, 99, 0.7)' }}
       >
-        <span className="text-xs" style={{ color: '#9ca3af' }}>
-          {label.footerLabel} · Confidential
-        </span>
-        <span className="text-xs font-mono" style={{ color: '#9ca3af' }}>
-          {summary.patientId}
-        </span>
+        <span className="text-xs" style={{ color: '#9ca3af' }}>{label.footerLabel} · Confidential</span>
+        <span className="text-xs font-mono" style={{ color: '#9ca3af' }}>{summary.patientId}</span>
       </div>
     </div>
   );
 }
 
-// Sub-components
+// ── Sub-components ────────────────────────────────────────────────────────────
 
-function Field({
-  icon, iconBg, label, children,
-}: {
-  icon: React.ReactNode;
-  iconBg: string;
-  label: string;
-  children: React.ReactNode;
+function Field({ icon, iconBg, label, children }: {
+  icon: React.ReactNode; iconBg: string; label: string; children: React.ReactNode;
 }) {
   return (
     <div className="flex items-start gap-3">
@@ -439,10 +339,7 @@ function Field({
         {icon}
       </div>
       <div>
-        <p
-          className="text-xs font-semibold uppercase mb-1.5"
-          style={{ color: '#94a3b8', letterSpacing: '0.12em' }}
-        >
+        <p className="text-xs font-semibold uppercase mb-1.5" style={{ color: '#94a3b8', letterSpacing: '0.12em' }}>
           {label}
         </p>
         {children}
@@ -452,30 +349,30 @@ function Field({
 }
 
 function ConfidenceBadge({ value }: { value: number }) {
-  const color =
-    value >= 90 ? { bg: '#dcfce7', text: '#166534', dot: '#16a34a' }
-    : value >= 70 ? { bg: '#fef9c3', text: '#854d0e', dot: '#ca8a04' }
+  const c = value >= 90
+    ? { bg: '#dcfce7', text: '#166534', dot: '#16a34a' }
+    : value >= 70
+    ? { bg: '#fef9c3', text: '#854d0e', dot: '#ca8a04' }
     : { bg: '#fee2e2', text: '#991b1b', dot: '#dc2626' };
   return (
     <span
       className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full"
-      style={{ background: color.bg, color: color.text }}
+      style={{ background: c.bg, color: c.text }}
     >
-      <span className="w-1.5 h-1.5 rounded-full" style={{ background: color.dot }} />
+      <span className="w-1.5 h-1.5 rounded-full" style={{ background: c.dot }} />
       {value}% confidence
     </span>
   );
 }
 
 function Pill({ children, color }: { children: React.ReactNode; color: 'emerald' | 'amber' }) {
-  const styles = {
-    emerald: { bg: '#dcfce7', text: '#166534', border: '#bbf7d0' },
-    amber:   { bg: '#fef3c7', text: '#92400e', border: '#fde68a' },
-  }[color];
+  const s = color === 'emerald'
+    ? { bg: '#dcfce7', text: '#166534', border: '#bbf7d0' }
+    : { bg: '#fef3c7', text: '#92400e', border: '#fde68a' };
   return (
     <span
       className="text-xs font-bold font-mono px-2.5 py-1 rounded-lg"
-      style={{ background: styles.bg, color: styles.text, border: `1px solid ${styles.border}`, letterSpacing: '0.04em' }}
+      style={{ background: s.bg, color: s.text, border: `1px solid ${s.border}`, letterSpacing: '0.04em' }}
     >
       {children}
     </span>
