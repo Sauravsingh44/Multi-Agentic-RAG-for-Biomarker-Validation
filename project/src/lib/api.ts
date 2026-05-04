@@ -13,6 +13,12 @@ type ApiResponse<T = unknown> = {
 type AnalysisResult = Record<string, unknown>;
 
 type RecentAnalysis = AnalysisResult[];
+type DashboardSummary = {
+  analyses_run: number;
+  genes_profiled: number;
+  drug_candidates: number;
+  avg_pipeline_minutes: number | null;
+};
 
 function normalizeStatus(status?: string) {
   const value = (status || '').toLowerCase();
@@ -137,5 +143,18 @@ export const api = {
     const res = await fetch(`${API_BASE}/pipeline/analyses/clear/`, { method: 'DELETE' });
     if (!res.ok) throw new Error('Clear analyses failed');
     return await res.json();
+  },
+
+  async summary(): Promise<DashboardSummary> {
+    const res = await fetch(`${API_BASE}/pipeline/analyses/summary/`);
+    if (!res.ok) throw new Error('Summary fetch failed');
+    const data = (await res.json()) as Partial<DashboardSummary>;
+    return {
+      analyses_run: Number(data.analyses_run || 0),
+      genes_profiled: Number(data.genes_profiled || 0),
+      drug_candidates: Number(data.drug_candidates || 0),
+      avg_pipeline_minutes:
+        data.avg_pipeline_minutes == null ? null : Number(data.avg_pipeline_minutes),
+    };
   },
 };

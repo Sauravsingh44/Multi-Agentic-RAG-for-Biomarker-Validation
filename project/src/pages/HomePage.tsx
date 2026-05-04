@@ -24,6 +24,13 @@ export default function HomePage() {
   const [loading, setLoading] = useState(false);
   const [recentLoading, setRecentLoading] = useState(true);
   const [clearing, setClearing] = useState(false);
+  const [summaryLoading, setSummaryLoading] = useState(true);
+  const [summaryStats, setSummaryStats] = useState<{
+    analyses_run: number;
+    genes_profiled: number;
+    drug_candidates: number;
+    avg_pipeline_minutes: number | null;
+  } | null>(null);
   const [recentAnalyses, setRecentAnalyses] = useState<Array<{
     id: string;
     patient_id: string;
@@ -68,16 +75,51 @@ export default function HomePage() {
     }
   };
 
+  const loadSummary = async () => {
+    try {
+      const data = await api.summary();
+      setSummaryStats(data);
+    } catch (err) {
+      console.error(err);
+      setSummaryStats(null);
+    }
+  };
+
   useEffect(() => {
     const run = async () => {
       try {
-        await loadRecent();
+        await Promise.all([loadRecent(), loadSummary()]);
       } finally {
         setRecentLoading(false);
+        setSummaryLoading(false);
       }
     };
     run();
   }, []);
+
+  const stats = [
+    {
+      label: 'Analyses Run',
+      value: summaryLoading ? '...' : (summaryStats?.analyses_run ?? recentAnalyses.length).toLocaleString(),
+    },
+    {
+      label: 'Genes Profiled',
+      value: summaryLoading ? '...' : (summaryStats?.genes_profiled ?? 0).toLocaleString(),
+    },
+    {
+      label: 'Drug Candidates',
+      value: summaryLoading ? '...' : (summaryStats?.drug_candidates ?? 0).toLocaleString(),
+    },
+    {
+      label: 'Avg. Pipeline Time',
+      value:
+        summaryLoading
+          ? '...'
+          : summaryStats?.avg_pipeline_minutes != null
+            ? `${summaryStats.avg_pipeline_minutes} min`
+            : 'N/A',
+    },
+  ];
 
   return (
     <div className="space-y-16">
@@ -85,7 +127,7 @@ export default function HomePage() {
       <section className="text-center pt-8 pb-4">
         <div className="inline-flex items-center gap-2 bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 text-xs font-medium px-4 py-1.5 rounded-full mb-6">
           <Activity size={12} className="animate-pulse" />
-          Gene Expression Analysis Pipeline v2.4
+          Gene Expression Analysis Pipeline v1.0
         </div>
 
         <h1 className="text-4xl sm:text-5xl lg:text-6xl font-black text-gray-50 tracking-tight leading-tight mb-4">
@@ -146,12 +188,7 @@ export default function HomePage() {
 
       {/* Stats strip */}
       <section className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        {[
-          { label: 'Analyses Run', value: '12,847' },
-          { label: 'Genes Profiled', value: '20,531' },
-          { label: 'Drug Candidates', value: '3,200+' },
-          { label: 'Avg. Pipeline Time', value: '4.2 min' },
-        ].map((stat) => (
+        {stats.map((stat) => (
           <div key={stat.label} className="rounded-xl border border-gray-800 bg-gray-900/40 p-4 text-center">
             <p className="text-2xl font-black text-gray-100">{stat.value}</p>
             <p className="text-xs text-gray-500 mt-0.5">{stat.label}</p>
@@ -173,7 +210,7 @@ export default function HomePage() {
                 setClearing(true);
                 try {
                   await api.clearRecent();
-                  await loadRecent();
+                  await Promise.all([loadRecent(), loadSummary()]);
                 } catch (err) {
                   console.error(err);
                 } finally {
