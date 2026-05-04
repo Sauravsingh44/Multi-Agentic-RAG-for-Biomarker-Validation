@@ -1,40 +1,106 @@
+import logging
+import os
+import threading
 import uuid
-from rest_framework.decorators import api_view
+
+from django.db import close_old_connections
+from rest_framework.decorators import api_view, authentication_classes, permission_classes
+from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
+
 from .models import PatientAnalysis
 from .serializers import PatientAnalysisSerializer
 
-@api_view(['POST'])
-def analyze_csv(request):
-    file = request.FILES.get('file')
-    classifier_type = str(request.data.get('classifier_type', 'lung')).strip().lower()
-    if not file or not file.name.endswith('.csv'):
-        return Response({"error": "CSV file required"}, status=400)
-    if classifier_type not in {"lung", "colorectal"}:
-        return Response({"error": "Invalid classifier_type. Use 'lung' or 'colorectal'."}, status=400)
-    
-    patient_id = f"PATIENT-{uuid.uuid4().hex[:8]}"
-    analysis = PatientAnalysis.objects.create(
-        patient_id=patient_id,
-        status='PENDING',
-        current_step='Queued'
-    )
-    
-    # Read CSV content and trigger Celery
-    csv_content = file.read().decode('utf-8')
-    from .tasks import run_full_pipeline
+logger = logging.getLogger(__name__)
+
+
+def _run_pipeline_in_thread(analysis_id: str, csv_content: str, classifier_type: str) -> None:
+    """Run heavy pipeline off the request thread (avoids Gunicorn/Render timeouts when Celery is down)."""
+    close_old_connections()
     try:
-        run_full_pipeline.delay(str(analysis.id), csv_content, classifier_type)
+        from .tasks import run_full_pipeline
+
+        run_full_pipeline(analysis_id, csv_content, classifier_type)
+    except Exception:
+        logger.exception("Background pipeline failed for analysis_id=%s", analysis_id)
+    finally:
+        close_old_connections()
+
+
+@api_view(["POST"])
+@authentication_classes([])
+@permission_classes([AllowAny])
+def analyze_csv(request):
+    try:
+        file = request.FILES.get("file")
+        classifier_type = str(request.data.get("classifier_type", "lung")).strip().lower()
+        if not file or not file.name.endswith(".csv"):
+            return Response({"error": "CSV file required"}, status=400)
+        if classifier_type not in {"lung", "colorectal"}:
+            return Response(
+                {"error": "Invalid classifier_type. Use 'lung' or 'colorectal'."},
+                status=400,
+            )
+
+        patient_id = f"PATIENT-{uuid.uuid4().hex[:8]}"
+        analysis = PatientAnalysis.objects.create(
+            patient_id=patient_id,
+            status="PENDING",
+            current_step="Queued",
+        )
+
+        try:
+            csv_content = file.read().decode("utf-8")
+        except UnicodeDecodeError:
+            analysis.delete()
+            return Response(
+                {"error": "CSV must be valid UTF-8 text."},
+                status=400,
+            )
+
+        from .tasks import run_full_pipeline
+
+        # In cloud deploys, avoid running the heavy ML/RAG pipeline inside web workers by default.
+        # Use Celery + Redis for production, or explicitly allow thread fallback.
+        _is_deployed = bool(os.getenv("RENDER") or os.getenv("RAILWAY_ENVIRONMENT"))
+        allow_thread_fallback = os.getenv(
+            "ALLOW_THREAD_PIPELINE_FALLBACK",
+            "false" if _is_deployed else "true",
+        ).lower() in ("1", "true", "yes")
+
+        try:
+            run_full_pipeline.delay(str(analysis.id), csv_content, classifier_type)
+        except Exception as exc:
+            if not allow_thread_fallback:
+                analysis.status = "FAILED"
+                analysis.current_step = "Queue unavailable"
+                analysis.error_message = (
+                    f"Celery broker unavailable: {exc}. "
+                    "Configure CELERY_BROKER_URL and run a Celery worker."
+                )
+                analysis.save(update_fields=["status", "current_step", "error_message"])
+                return Response(
+                    {
+                        "error": "Background queue unavailable. Configure Celery/Redis worker.",
+                        "analysis_id": str(analysis.id),
+                    },
+                    status=503,
+                )
+
+            analysis.current_step = "Processing (background)"
+            analysis.error_message = f"Celery unavailable, running in background thread: {exc}"
+            analysis.save(update_fields=["current_step", "error_message"])
+            threading.Thread(
+                target=_run_pipeline_in_thread,
+                args=(str(analysis.id), csv_content, classifier_type),
+                daemon=True,
+            ).start()
+
+        serializer = PatientAnalysisSerializer(analysis)
+        return Response(serializer.data)
     except Exception as exc:
-        # If broker (Redis/Celery) is unavailable in local dev, run inline
-        # so API calls don't fail with 500 at upload time.
-        analysis.current_step = "Processing (no broker)"
-        analysis.error_message = f"Celery unavailable, ran inline: {exc}"
-        analysis.save(update_fields=["current_step", "error_message"])
-        run_full_pipeline(str(analysis.id), csv_content, classifier_type)
-    
-    serializer = PatientAnalysisSerializer(analysis)
-    return Response(serializer.data)
+        logger.exception("analyze_csv failed")
+        return Response({"error": str(exc)}, status=500)
     
 @api_view(['GET'])
 def analysis_status(request, analysis_id):

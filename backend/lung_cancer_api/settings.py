@@ -110,7 +110,10 @@ CHANNEL_LAYERS = {
     },
 }
 
-CELERY_BROKER_URL = 'redis://localhost:6379/0'
+# Celery should be configured from environment in cloud deploys.
+# Example (Render Redis internal URL): redis://:<password>@<host>:6379/0
+CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", "")
+CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", CELERY_BROKER_URL)
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
