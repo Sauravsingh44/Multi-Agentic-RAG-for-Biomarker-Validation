@@ -81,6 +81,8 @@ export default function ResultsPage() {
   const isComplete = currentStatus === 'complete';
   const isError = currentStatus === 'error';
   const results = analysis?.results ?? null;
+  const confidencePercent =
+    results ? (Number(results.confidence) <= 1 ? Number(results.confidence) * 100 : Number(results.confidence)) : 0;
 
   return (
     <div className="space-y-10">
@@ -159,7 +161,7 @@ export default function ResultsPage() {
                     </div>
                     <div className="bg-gray-800/50 rounded-xl p-4">
                       <p className="text-xs text-gray-500 mb-1">Confidence</p>
-                      <p className="text-2xl font-bold text-cyan-400">{(results.confidence * 100).toFixed(1)}%</p>
+                      <p className="text-2xl font-bold text-cyan-400">{confidencePercent.toFixed(1)}%</p>
                     </div>
                   </div>
                 </div>

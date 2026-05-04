@@ -45,9 +45,11 @@ export const api = {
       body: formData,
     });
     
-    if (!res.ok) throw new Error('Upload failed');
-    const data = await res.json();
-    return { analysis_id: data.id };
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error((data as { error?: string }).error || `Upload failed (${res.status})`);
+    }
+    return { analysis_id: (data as { id?: string; analysis_id?: string }).id || (data as { analysis_id?: string }).analysis_id || '' };
   },
 
   async status(analysisId: string): Promise<ApiResponse> {

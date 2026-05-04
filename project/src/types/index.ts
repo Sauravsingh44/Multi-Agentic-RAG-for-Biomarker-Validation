@@ -1,4 +1,4 @@
-export type Subtype = 'LUAD' | 'LUSC';
+export type Subtype = 'LUAD' | 'LUSC' | 'Colon Adenocarcinoma' | 'Rectal Adenocarcinoma';
 export type AnalysisStatus = 'pending' | 'running' | 'complete' | 'error';
 
 export interface DriverGene {

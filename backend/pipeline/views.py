@@ -65,7 +65,7 @@ def analyze_csv(request):
         _is_deployed = bool(os.getenv("RENDER") or os.getenv("RAILWAY_ENVIRONMENT"))
         allow_thread_fallback = os.getenv(
             "ALLOW_THREAD_PIPELINE_FALLBACK",
-            "false" if _is_deployed else "true",
+            "true",
         ).lower() in ("1", "true", "yes")
 
         try:

@@ -98,8 +98,21 @@ class MLClassifier:
 
             raw_label = result.get("label")
             label = label_map.get(raw_label, raw_label)
-            confidence = float(result.get("confidence", 0.0))
             probability = result.get("probability")
+            raw_confidence = result.get("confidence")
+
+            if raw_confidence is None:
+                if isinstance(probability, dict) and probability:
+                    raw_confidence = max(probability.values())
+                elif isinstance(probability, list) and probability:
+                    raw_confidence = max(probability)
+                else:
+                    raw_confidence = 0.0
+
+            confidence = float(raw_confidence)
+            # Normalize to percentage for downstream UI and subtype score bars.
+            if confidence <= 1:
+                confidence = confidence * 100.0
 
             return {
                 "predicted_subtype": label,
