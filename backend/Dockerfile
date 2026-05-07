@@ -7,14 +7,20 @@ RUN apt-get update && apt-get install -y \
     g++ \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt ./requirements.txt
+# Hugging Face Spaces expect port 7860; Railway/Render set PORT explicitly.
+# Default to 7860 so Spaces health checks pass when PORT is unset.
+ENV PORT=7860
+
+# HF Space README can set dockerbuildargs REQUIREMENTS_FILE=requirements-hf-space.txt for faster builds.
+ARG REQUIREMENTS_FILE=requirements.txt
+COPY ${REQUIREMENTS_FILE} ./requirements-install.txt
 
 RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
+    pip install --no-cache-dir -r requirements-install.txt
 
 COPY . .
 
-EXPOSE 8000
+EXPOSE 7860
 
-# Shell form so $PORT expands; Railway also injects startCommand — use sh -c there if overriding CMD.
-CMD ["sh", "-c", "exec gunicorn lung_cancer_api.wsgi:application --bind 0.0.0.0:${PORT:-8000} --workers 2 --timeout 120"]
+# One worker keeps memory low on small Space hardware; migrate before serving.
+CMD ["sh", "-c", "python manage.py migrate --noinput && exec gunicorn lung_cancer_api.wsgi:application --bind 0.0.0.0:${PORT} --workers 1 --threads 4 --timeout 300 --graceful-timeout 60 --limit-request-line 8190"]

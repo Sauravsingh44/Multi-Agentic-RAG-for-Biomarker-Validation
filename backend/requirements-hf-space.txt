@@ -1,3 +1,7 @@
+# Slim dependencies for Hugging Face Spaces Docker builds.
+# Excludes torch/transformers/sentence-transformers (not imported by this codebase; huge install).
+# Use requirements.txt for full local/CI installs if you add local embedding models later.
+
 aiohappyeyeballs
 aiohttp
 aiosignal
@@ -11,7 +15,6 @@ billiard
 celery
 certifi
 channels
-channels-redis
 charset-normalizer
 click
 click-didyoumean
@@ -26,7 +29,6 @@ distro
 Django
 django-cors-headers
 djangorestframework
-faiss-cpu
 filelock
 fonttools
 frozenlist
@@ -50,7 +52,6 @@ langchain
 langchain-community
 langchain-core
 langchain-groq
-langchain-huggingface
 langchain-text-splitters
 langgraph
 langgraph-checkpoint
@@ -91,10 +92,8 @@ requests
 requests-toolbelt
 rich
 safetensors
-scikit-image
 scikit-learn
 scipy
-sentence-transformers
 shap
 shellingham
 six
@@ -107,9 +106,7 @@ tenacity
 threadpoolctl
 tifffile
 tokenizers
-torch
 tqdm
-transformers
 typer
 typing-inspect
 typing_extensions

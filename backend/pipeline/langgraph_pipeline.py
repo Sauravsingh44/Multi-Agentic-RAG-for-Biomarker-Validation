@@ -135,12 +135,12 @@ def fetch_ncbi_gene(gene):
     })
 
 
-def fetch_pubmed(gene):
+def fetch_pubmed(gene, cancer_term="lung cancer"):
     url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
 
     params = {
         "db": "pubmed",
-        "term": f"{gene} lung cancer",
+        "term": f"{gene} {cancer_term}",
         "retmax": 5,
         "retmode": "json"
     }
@@ -240,6 +240,8 @@ Evidence payload:
 class AgentState(TypedDict):
     gene: str
     shap_score: float
+    cancer_type: str
+    cancer_term: str
     drug_candidates: List[str]
     top_genes: List[str]
     top_drugs: List[str]
@@ -267,6 +269,14 @@ def _sanitize_text(text):
         return ""
     # Remove markdown bold markers to keep output plain text.
     return text.replace("**", "").strip()
+
+
+def _normalize_cancer_type(value):
+    return "colorectal" if str(value or "").strip().lower() == "colorectal" else "lung"
+
+
+def _cancer_term(cancer_type):
+    return "colorectal cancer" if cancer_type == "colorectal" else "lung cancer"
 
 
 def _agent_prompt(state, agent_name, focus, role_rules):
@@ -319,10 +329,11 @@ Role-specific rules (must follow):
 # Agents
 # =========================
 def gene_agent(state):
+    cancer_term = state.get("cancer_term", "lung cancer")
     prompt = _agent_prompt(
         state,
         "Gene Agent",
-        f"Analyze the biological role of {state['gene']} in lung cancer progression and biomarker relevance.",
+        f"Analyze the biological role of {state['gene']} in {cancer_term} progression and biomarker relevance.",
         "- Focus on gene function and biomarker relevance; avoid pathway/drug details."
     )
     result = _invoke_with_model(MODEL_GENE, prompt)
@@ -358,6 +369,7 @@ def drug_agent(state):
 
 
 def literature_agent(state):
+    cancer_term = state.get("cancer_term", "lung cancer")
     evidence_seed = " | ".join([
         _clip_text(state.get("ncbi_raw", ""), 260),
         _clip_text(state.get("ebi_raw", ""), 260),
@@ -380,7 +392,7 @@ Return exactly 2 short bullet points on evidence strength and conflicts.
     prompt = _agent_prompt(
         state,
         "Literature Agent",
-        f"Summarize literature support and conflicting evidence for {state['gene']} in lung cancer. Chunk insights: {' | '.join(chunk_notes[:3])}",
+        f"Summarize literature support and conflicting evidence for {state['gene']} in {cancer_term}. Chunk insights: {' | '.join(chunk_notes[:3])}",
         "- Focus on evidence strength/consistency/conflicts; avoid deep drug mechanism claims."
     )
     result = _invoke_with_model(MODEL_LITERATURE, prompt)
@@ -463,14 +475,16 @@ app = graph.compile()
 # =========================
 # Runner
 # =========================
-def run_langgraph_pipeline(gene, shap_score, drug_candidates, top_genes=None, top_drugs=None):
+def run_langgraph_pipeline(gene, shap_score, drug_candidates, top_genes=None, top_drugs=None, cancer_type="lung"):
+    normalized_cancer_type = _normalize_cancer_type(cancer_type)
+    cancer_term = _cancer_term(normalized_cancer_type)
     ncbi = fetch_ncbi_gene(gene)
     time.sleep(API_DELAY)
 
     ebi = fetch_ebi_protein(gene)
     time.sleep(API_DELAY)
 
-    papers = fetch_pubmed(gene)
+    papers = fetch_pubmed(gene, cancer_term)
     time.sleep(API_DELAY)
     drugbank_hits = fetch_drugbank(gene)
 
@@ -479,6 +493,8 @@ def run_langgraph_pipeline(gene, shap_score, drug_candidates, top_genes=None, to
     initial_state = {
         "gene": gene,
         "shap_score": shap_score,
+        "cancer_type": normalized_cancer_type,
+        "cancer_term": cancer_term,
         "drug_candidates": drug_candidates,
         "top_genes": top_genes or [],
         "top_drugs": top_drugs or [],

@@ -152,8 +152,8 @@ def run_full_pipeline(analysis_id, csv_data, classifier_type="lung"):
             prediction = classifier.predict_lung_subtype(features)
 
         analysis.predicted_subtype = prediction["predicted_subtype"]
-        analysis.luad_confidence = prediction["confidence"]
-        analysis.lusc_confidence = 100 - prediction["confidence"]
+        analysis.luad_confidence = float(prediction["confidence"])
+        analysis.lusc_confidence = max(0.0, 100.0 - float(prediction["confidence"]))
 
         analysis.save()
 
@@ -280,6 +280,7 @@ def run_full_pipeline(analysis_id, csv_data, classifier_type="lung"):
                         drug_candidates=drugs_for_gene,
                         top_genes=top_genes_for_rag,
                         top_drugs=top_drugs_for_rag,
+                        cancer_type=classifier_type,
                     )
                     rag_output = fut.result(timeout=rag_timeout_s)
                     final_report = rag_output.get("final_report", "")
@@ -366,9 +367,20 @@ def run_full_pipeline(analysis_id, csv_data, classifier_type="lung"):
         combined_aggregator_summary = "\n\n".join(aggregator_summaries) if aggregator_summaries else "No aggregator summary available."
 
         if classifier_type == "colorectal":
+            probs = prediction.get("probability") if isinstance(prediction.get("probability"), dict) else {}
+            coad_score = float(probs.get("COAD", 0.0))
+            read_score = float(probs.get("READ", 0.0))
+            # Fallback when remote endpoint returns only one scalar confidence.
+            if coad_score <= 0 and read_score <= 0:
+                winner = "COAD" if analysis.predicted_subtype == "COAD" else "READ"
+                winner_score = float(prediction["confidence"])
+                loser_score = max(0.0, 100.0 - winner_score)
+                coad_score = winner_score if winner == "COAD" else loser_score
+                read_score = winner_score if winner == "READ" else loser_score
+
             subtype_scores = [
-                {"name": "Colon Adenocarcinoma", "value": float(prediction["confidence"]) if analysis.predicted_subtype == "Colon Adenocarcinoma" else float(100 - prediction["confidence"])},
-                {"name": "Rectal Adenocarcinoma", "value": float(prediction["confidence"]) if analysis.predicted_subtype == "Rectal Adenocarcinoma" else float(100 - prediction["confidence"])},
+                {"name": "COAD", "value": coad_score},
+                {"name": "READ", "value": read_score},
             ]
         else:
             subtype_scores = [

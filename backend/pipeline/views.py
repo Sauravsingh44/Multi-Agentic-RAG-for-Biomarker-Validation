@@ -2,13 +2,14 @@ import logging
 import os
 import threading
 import uuid
+from datetime import timedelta
 
 from django.db import close_old_connections
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
-from .models import PatientAnalysis
+from .models import DrugCandidate, PatientAnalysis
 from .serializers import PatientAnalysisSerializer
 
 logger = logging.getLogger(__name__)
@@ -122,6 +123,34 @@ def list_analyses(request):
     analyses = PatientAnalysis.objects.all().order_by('-created_at')[:10]
     serializer = PatientAnalysisSerializer(analyses, many=True)
     return Response(serializer.data)
+
+@api_view(['GET'])
+def analyses_summary(request):
+    analyses = PatientAnalysis.objects.all()
+
+    analyses_run = analyses.count()
+    genes_profiled = analyses.exclude(total_genes_analyzed__isnull=True).values_list('total_genes_analyzed', flat=True)
+    total_genes_profiled = sum(value for value in genes_profiled if value)
+    # Count from normalized relational rows to avoid JSON key mismatches (drugCandidates vs drug_candidates).
+    drug_candidates = DrugCandidate.objects.count()
+
+    completed = analyses.filter(status='COMPLETE').exclude(completed_at__isnull=True)
+    durations = [
+        (analysis.completed_at - analysis.created_at)
+        for analysis in completed.only('created_at', 'completed_at')
+        if analysis.completed_at and analysis.created_at
+    ]
+    avg_duration = sum(durations, timedelta()) / len(durations) if durations else None
+    avg_pipeline_minutes = round(avg_duration.total_seconds() / 60, 1) if avg_duration else None
+
+    return Response(
+        {
+            "analyses_run": analyses_run,
+            "genes_profiled": total_genes_profiled,
+            "drug_candidates": drug_candidates,
+            "avg_pipeline_minutes": avg_pipeline_minutes,
+        }
+    )
 
 @api_view(['DELETE'])
 def clear_analyses(request):

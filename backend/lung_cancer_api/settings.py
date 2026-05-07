@@ -14,7 +14,11 @@ SECRET_KEY = 'django-insecure--jtndq+2+ohkn8jsga!sy#9%^*ri+ve9un$nq=%@jero=dg%p8
 # SECURITY WARNING: don't run with debug turned on in production!
 # Local: defaults to True. Render sets RENDER; Railway sets RAILWAY_ENVIRONMENT — then default
 # is False unless you set DJANGO_DEBUG=true explicitly.
-_is_deployed = bool(os.getenv("RENDER") or os.getenv("RAILWAY_ENVIRONMENT"))
+# Hugging Face Spaces sets SPACE_AUTHOR_NAME / SPACE_REPO_NAME (see HF Spaces docs).
+_is_hf_space = bool(os.getenv("SPACE_AUTHOR_NAME") or os.getenv("SPACE_REPO_NAME"))
+_is_deployed = bool(
+    os.getenv("RENDER") or os.getenv("RAILWAY_ENVIRONMENT") or _is_hf_space
+)
 DEBUG = os.getenv(
     "DJANGO_DEBUG",
     "false" if _is_deployed else "true",
@@ -96,18 +100,40 @@ if _cors_extra:
 # Vercel production + preview URLs (https://*.vercel.app). Custom domains: set CORS_ALLOWED_ORIGINS on the host (e.g. Render).
 CORS_ALLOWED_ORIGIN_REGEXES = [
     r"^https://.*\.vercel\.app$",
+    r"^https://.*\.hf\.space$",
 ]
+
+# WebSocket channel layer: Redis is optional. HF Spaces and many PaaS images have no local Redis;
+# InMemory avoids startup/runtime failures for API-only deployments.
+_use_redis_channel_layer = os.getenv("CHANNEL_LAYER_REDIS", "").lower() in (
+    "1",
+    "true",
+    "yes",
+)
+if _use_redis_channel_layer:
+    CHANNEL_LAYERS = {
+        "default": {
+            "BACKEND": "channels_redis.core.RedisChannelLayer",
+            "CONFIG": {
+                "hosts": [
+                    (
+                        os.getenv("REDIS_HOST", "127.0.0.1"),
+                        int(os.getenv("REDIS_PORT", "6379")),
+                    )
+                ]
+            },
+        },
+    }
+else:
+    CHANNEL_LAYERS = {
+        "default": {
+            "BACKEND": "channels.layers.InMemoryChannelLayer",
+        },
+    }
 
 REST_FRAMEWORK = {
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 10
-}
-
-CHANNEL_LAYERS = {
-    "default": {
-        "BACKEND": "channels_redis.core.RedisChannelLayer",
-        "CONFIG": {"hosts": [("127.0.0.1", 6379)]},
-    },
 }
 
 # Celery should be configured from environment in cloud deploys.
